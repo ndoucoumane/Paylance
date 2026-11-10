@@ -8,6 +8,7 @@ import com.paylance.domain.enums.*;
 import com.paylance.idempotency.IdempotencyService;
 import com.paylance.provider.PaymentProviderClient;
 import com.paylance.provider.PaymentProviderRegistry;
+import com.paylance.provider.ProviderConnectionResolver;
 import com.paylance.provider.ProviderInitiateResult;
 import com.paylance.provider.ProviderPayoutResult;
 import com.paylance.provider.ProviderRefundResult;
@@ -52,6 +53,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
     private final PaymentProviderRegistry providerRegistry;
+    private final ProviderConnectionResolver connectionResolver;
     private final IdempotencyService idempotencyService;
     private final PaymentLogService paymentLogService;
     private final PaymentStatusTransitionService statusTransitionService;
@@ -117,7 +119,7 @@ public class PaymentService {
 
                 long tProvider = System.currentTimeMillis();
                 log.info("[STEP 7 - PROVIDER_CALL_START] Envoi requête vers provider {}", request.provider());
-                ProviderInitiateResult result = providerClient.initiate(payment);
+                ProviderInitiateResult result = providerClient.initiate(connectionResolver.forPayment(payment), payment);
                 long providerDuration = System.currentTimeMillis() - tProvider;
                 log.info("[STEP 7 - PROVIDER_CALL_END] Réponse reçue du provider {} en {}ms (providerTxId={}, status={})",
                         request.provider(), providerDuration, result.providerTransactionId(), result.status());
@@ -176,7 +178,7 @@ public class PaymentService {
                 platform, provider, amount, currency);
         PaymentInitiateRequest request = new PaymentInitiateRequest(
                 "admin-link-" + UUID.randomUUID(), provider, amount, currency,
-                payerPhone, payerName, null, null, expiresInMinutes, null);
+                payerPhone, payerName, null, null, expiresInMinutes, null, null, null);
         return initiate(platform, request);
     }
 
@@ -221,7 +223,7 @@ public class PaymentService {
                 paymentLogService.info(payment, "PROVIDER_PAYOUT_CALL", "Appel virement sortant vers " + request.provider());
 
                 long tProvider = System.currentTimeMillis();
-                ProviderPayoutResult result = providerClient.payout(payment);
+                ProviderPayoutResult result = providerClient.payout(connectionResolver.forPayment(payment), payment);
                 long providerDuration = System.currentTimeMillis() - tProvider;
 
                 payment.setProviderTransactionId(result.providerTransactionId());
@@ -279,6 +281,8 @@ public class PaymentService {
                 .currency(request.currency() != null ? request.currency() : "XOF")
                 .payerPhone(request.payerPhone())
                 .payerName(request.payerName())
+                .successUrl(request.successUrl())
+                .errorUrl(request.errorUrl())
                 .status(PaymentStatus.PENDING)
                 .expiresAt(LocalDateTime.now().plusMinutes(
                         request.expiresInMinutes() != null ? request.expiresInMinutes() : DEFAULT_EXPIRY_MINUTES))
@@ -350,7 +354,7 @@ public class PaymentService {
         PaymentProviderClient providerClient = providerRegistry.resolve(payment.getProvider());
         log.info("[REFUND_PROVIDER_CALL_START] Appel provider {} refund pour paymentId={}, amount={}",
                 payment.getProvider(), paymentId, refundAmount);
-        ProviderRefundResult result = providerClient.refund(payment, refundAmount, request.reason());
+        ProviderRefundResult result = providerClient.refund(connectionResolver.forPayment(payment), payment, refundAmount, request.reason());
         long providerDuration = System.currentTimeMillis() - tProvider;
         log.info("[REFUND_PROVIDER_CALL_END] Réponse provider {} refund reçue en {}ms (status={}, providerRefundId={})",
                 payment.getProvider(), providerDuration, result.status(), result.providerRefundId());

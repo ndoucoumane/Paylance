@@ -10,6 +10,8 @@ import com.paylance.domain.enums.TriggeredBy;
 import com.paylance.domain.enums.WebhookStatus;
 import com.paylance.provider.PaymentProviderClient;
 import com.paylance.provider.PaymentProviderRegistry;
+import com.paylance.provider.ProviderConnection;
+import com.paylance.provider.ProviderConnectionResolver;
 import com.paylance.provider.WebhookParseResult;
 import com.paylance.repository.PaymentRepository;
 import com.paylance.repository.WebhookEventRepository;
@@ -41,18 +43,23 @@ public class WebhookService {
     private final WebhookEventRepository webhookEventRepository;
     private final PaymentRepository paymentRepository;
     private final PaymentProviderRegistry providerRegistry;
+    private final ProviderConnectionResolver connectionResolver;
     private final PaymentStatusTransitionService statusTransitionService;
     private final PaymentLogService paymentLogService;
     private final PaymentNumberGenerator paymentNumberGenerator;
 
-    public void handle(PaymentProvider provider, String rawPayload, String signatureHeader) {
+    public void handle(PaymentProvider provider, String providerAccountId, String rawPayload, String signatureHeader) {
         long totalStart = System.currentTimeMillis();
         log.info("[WEBHOOK_HANDLE_START] Début traitement webhook pour provider={}", provider);
 
         PaymentProviderClient client = providerRegistry.resolve(provider);
+        ProviderConnection connection = connectionResolver.forAccount(providerAccountId);
+        if (connection.provider() != provider) {
+            throw new InvalidWebhookSignatureException("Compte prestataire incompatible avec " + provider);
+        }
 
         long tSig = System.currentTimeMillis();
-        boolean signatureValid = client.verifyWebhookSignature(rawPayload, signatureHeader);
+        boolean signatureValid = client.verifyWebhookSignature(connection, rawPayload, signatureHeader);
         long sigDuration = System.currentTimeMillis() - tSig;
         log.info("[WEBHOOK_SIGNATURE_CHECK] Vérification signature {} en {}ms (valide={})", provider, sigDuration, signatureValid);
 
@@ -176,7 +183,7 @@ public class WebhookService {
             paymentRepository.save(payment);
         }
         if (provider == PaymentProvider.ORANGE_MONEY && parsed.status() == PaymentStatus.SUCCESS) {
-            enrichActualPayerPhone(client, payment);
+            enrichActualPayerPhone(client, connection, payment);
         }
 
         event.setStatus(WebhookStatus.PROCESSED);
@@ -194,10 +201,10 @@ public class WebhookService {
      * disponible que via l'endpoint de statut ({@link PaymentProviderClient#checkStatus}). Best
      * effort : un échec ici ne doit pas remettre en cause le traitement du webhook, déjà terminé.
      */
-    private void enrichActualPayerPhone(PaymentProviderClient client, Payment payment) {
+    private void enrichActualPayerPhone(PaymentProviderClient client, ProviderConnection connection, Payment payment) {
         long start = System.currentTimeMillis();
         try {
-            String actual = client.checkStatus(payment).actualPayerPhone();
+            String actual = client.checkStatus(connection, payment).actualPayerPhone();
             long duration = System.currentTimeMillis() - start;
             if (actual != null && !actual.isBlank() && !actual.equals(payment.getActualPayerPhone())) {
                 log.info("[WEBHOOK_ENRICH_PHONE_SUCCESS] Numéro payeur réel enrichi en {}ms pour le paiement {} : {}",

@@ -11,6 +11,10 @@ import com.paylance.provider.ProviderInitiateResult;
 import com.paylance.provider.ProviderPayoutResult;
 import com.paylance.provider.ProviderRefundResult;
 import com.paylance.provider.ProviderStatusResult;
+import com.paylance.provider.ConnectionTestResult;
+import com.paylance.provider.ProviderConnection;
+import com.paylance.provider.WebhookParseResult;
+import com.paylance.provider.credentials.WaveCredentials;
 import com.paylance.web.exception.ProviderCommunicationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -45,7 +49,6 @@ public class WaveClient implements PaymentProviderClient {
         this.objectMapper = objectMapper;
         this.webClient = webClientBuilder
                 .baseUrl(properties.baseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.checkoutApiKey())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
     }
@@ -56,7 +59,8 @@ public class WaveClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderInitiateResult initiate(Payment payment) {
+    public ProviderInitiateResult initiate(ProviderConnection connection, Payment payment) {
+        WaveCredentials credentials = connection.credentials(WaveCredentials.class);
         long start = System.currentTimeMillis();
         log.info("[WAVE_INITIATE_START] Initiation session checkout Wave pour paymentId={}, montant={} {}",
                 payment.getId(), toWaveAmount(payment.getAmount()), payment.getCurrency());
@@ -64,16 +68,17 @@ public class WaveClient implements PaymentProviderClient {
                 toWaveAmount(payment.getAmount()),
                 payment.getCurrency(),
                 payment.getId(),
-                properties.successUrl(),
-                properties.errorUrl()
+                payment.getSuccessUrl(),
+                payment.getErrorUrl()
         );
         try {
             WaveCheckoutSessionResponse response = webClient.post()
                     .uri("/v1/checkout/sessions")
+                    .headers(h -> h.setBearerAuth(credentials.checkoutApiKey()))
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(WaveCheckoutSessionResponse.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -102,7 +107,8 @@ public class WaveClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderStatusResult checkStatus(Payment payment) {
+    public ProviderStatusResult checkStatus(ProviderConnection connection, Payment payment) {
+        WaveCredentials credentials = connection.credentials(WaveCredentials.class);
         if (payment.getProviderTransactionId() == null || payment.getProviderTransactionId().isBlank()) {
             if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(LocalDateTime.now())) {
                 return new ProviderStatusResult(PaymentStatus.EXPIRED, null, "Paiement expiré sans session Wave", null);
@@ -111,7 +117,7 @@ public class WaveClient implements PaymentProviderClient {
         }
 
         if (payment.getProviderTransactionId().startsWith("po-") || payment.getProviderTransactionId().startsWith("payout-")) {
-            return checkPayoutStatus(payment);
+            return checkPayoutStatus(credentials, payment);
         }
 
         long start = System.currentTimeMillis();
@@ -120,9 +126,10 @@ public class WaveClient implements PaymentProviderClient {
         try {
             WaveCheckoutSessionResponse response = webClient.get()
                     .uri("/v1/checkout/sessions/{id}", payment.getProviderTransactionId())
+                    .headers(h -> h.setBearerAuth(credentials.checkoutApiKey()))
                     .retrieve()
                     .bodyToMono(WaveCheckoutSessionResponse.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -160,17 +167,17 @@ public class WaveClient implements PaymentProviderClient {
         }
     }
 
-    private ProviderStatusResult checkPayoutStatus(Payment payment) {
+    private ProviderStatusResult checkPayoutStatus(WaveCredentials credentials, Payment payment) {
         long start = System.currentTimeMillis();
         log.info("[WAVE_CHECK_PAYOUT_STATUS_START] Vérification statut Payout Wave pour paymentId={}, payoutId={}",
                 payment.getId(), payment.getProviderTransactionId());
         try {
             WavePayoutResponse response = webClient.get()
                     .uri("/v1/payout/{id}", payment.getProviderTransactionId())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.effectivePayoutApiKey())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + credentials.effectivePayoutApiKey())
                     .retrieve()
                     .bodyToMono(WavePayoutResponse.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -203,7 +210,10 @@ public class WaveClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderRefundResult refund(Payment payment, Long amount, String reason) {
+    public ProviderRefundResult refund(ProviderConnection connection, Payment payment, Long amount, String reason) {
+        WaveCredentials credentials = connection.credentials(WaveCredentials.class);
+        // TODO(Wave) : le remboursement partiel d'une checkout session est-il possible ? Le code
+        // historique le considère impossible et refuse localement tout montant partiel.
         if (amount != null && amount < payment.getAmount()) {
             return new ProviderRefundResult(null, RefundStatus.FAILED, null,
                     "Wave ne supporte que le remboursement total d'une checkout session");
@@ -214,9 +224,10 @@ public class WaveClient implements PaymentProviderClient {
         try {
             var response = webClient.post()
                     .uri("/v1/checkout/sessions/{id}/refund", payment.getProviderTransactionId())
+                    .headers(h -> h.setBearerAuth(credentials.checkoutApiKey()))
                     .retrieve()
                     .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -236,14 +247,13 @@ public class WaveClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderPayoutResult payout(Payment payment) {
+    public ProviderPayoutResult payout(ProviderConnection connection, Payment payment) {
+        WaveCredentials credentials = connection.credentials(WaveCredentials.class);
         long start = System.currentTimeMillis();
         log.info("[WAVE_PAYOUT_START] Initiation virement direct (Payout) Wave pour paymentId={}, montant={} {}, destinataire={}",
                 payment.getId(), toWaveAmount(payment.getAmount()), payment.getCurrency(), payment.getPayerPhone());
 
-        String payoutPath = properties.payoutEndpointPath() != null && !properties.payoutEndpointPath().isBlank()
-                ? properties.payoutEndpointPath()
-                : "/v1/payout";
+        String payoutPath = properties.payoutEndpointPath();
 
         WavePayoutRequest request = new WavePayoutRequest(
                 toWaveAmount(payment.getAmount()),
@@ -260,12 +270,12 @@ public class WaveClient implements PaymentProviderClient {
         try {
             WavePayoutResponse response = webClient.post()
                     .uri(payoutPath)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.effectivePayoutApiKey())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + credentials.effectivePayoutApiKey())
                     .header("Idempotency-Key", idempotencyKey)
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(WavePayoutResponse.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -298,16 +308,17 @@ public class WaveClient implements PaymentProviderClient {
      * Consulte le solde du wallet WAVE via {@code GET /v1/balance}.
      * Utilise la {@code balanceApiKey} (scope balance_api) pour l'authentification.
      */
-    public WaveBalanceResponse getBalance() {
+    public WaveBalanceResponse getBalance(ProviderConnection connection) {
+        WaveCredentials credentials = connection.credentials(WaveCredentials.class);
         long start = System.currentTimeMillis();
         log.info("[WAVE_BALANCE_START] Consultation du solde Wave");
         try {
             WaveBalanceResponse response = webClient.get()
                     .uri("/v1/balance")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.effectiveBalanceApiKey())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + credentials.effectiveBalanceApiKey())
                     .retrieve()
                     .bodyToMono(WaveBalanceResponse.class)
-                    .timeout(Duration.ofSeconds(10))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -334,6 +345,22 @@ public class WaveClient implements PaymentProviderClient {
         }
     }
 
+    /**
+     * Lecture seule : {@code GET /v1/balance}, déjà utilisé pour la consultation du solde.
+     * TODO(Wave) : une clé limitée au scope checkout_api peut recevoir un 403 sur cet endpoint
+     * alors qu'elle est valide pour l'encaissement — à confirmer, et le cas échéant exiger une
+     * clé balance_api à la création du compte.
+     */
+    @Override
+    public ConnectionTestResult testConnection(ProviderConnection connection) {
+        try {
+            WaveBalanceResponse balance = getBalance(connection);
+            return new ConnectionTestResult(true, "Connexion Wave valide (devise du compte : " + balance.currency() + ")");
+        } catch (ProviderCommunicationException e) {
+            return new ConnectionTestResult(false, e.getMessage());
+        }
+    }
+
     private PaymentStatus mapPayoutStatus(String wavePayoutStatus) {
         if (wavePayoutStatus == null) {
             return PaymentStatus.PROCESSING;
@@ -352,7 +379,11 @@ public class WaveClient implements PaymentProviderClient {
      * Référence : https://docs.wave.com/webhook
      */
     @Override
-    public boolean verifyWebhookSignature(String rawPayload, String signatureHeader) {
+    public boolean verifyWebhookSignature(ProviderConnection connection, String rawPayload, String signatureHeader) {
+        if (connection.webhookSecret() == null || connection.webhookSecret().isBlank()) {
+            log.warn("[WAVE_SIGNATURE_NO_SECRET] Aucun secret webhook configuré pour le compte {}", connection.providerAccountId());
+            return false;
+        }
         if (signatureHeader == null || signatureHeader.isBlank()) {
             log.warn("[WAVE_SIGNATURE_EMPTY] Header Wave-Signature manquant ou vide");
             return false;
@@ -385,13 +416,13 @@ public class WaveClient implements PaymentProviderClient {
             log.warn("[WAVE_SIGNATURE_TIMESTAMP_INVALID] Timestamp Wave non numérique: {}", timestamp);
             return false;
         }
-        boolean valid = HmacUtil.matches(timestamp + rawPayload, properties.webhookSecret(), signature);
+        boolean valid = HmacUtil.matches(timestamp + rawPayload, connection.webhookSecret(), signature);
         log.info("[WAVE_SIGNATURE_CHECK] Vérification signature Wave: {}", valid ? "VALIDE" : "INVALIDE");
         return valid;
     }
 
     @Override
-    public com.paylance.provider.WebhookParseResult parseWebhookEvent(String rawPayload) {
+    public WebhookParseResult parseWebhookEvent(String rawPayload) {
         try {
             var root = objectMapper.readTree(rawPayload);
             var data = root.has("data") ? root.get("data") : root;
@@ -411,7 +442,7 @@ public class WaveClient implements PaymentProviderClient {
             String failureReason = extractFailureReason(paymentStatus, data.get("last_payment_error"));
             log.info("[WAVE_WEBHOOK_PARSED] Événement Wave mappé: transactionId={}, checkoutStatus={}, paymentStatus={}, finalStatus={}",
                     transactionId, checkoutStatus, paymentStatus, status);
-            return new com.paylance.provider.WebhookParseResult(eventId, transactionId, status, failureReason, null);
+            return new WebhookParseResult(eventId, transactionId, status, failureReason, null);
         } catch (Exception e) {
             log.error("[WAVE_WEBHOOK_PARSE_ERROR] Impossible de parser le webhook Wave: {}", e.getMessage());
             throw new ProviderCommunicationException("Impossible de parser le webhook Wave", e);
@@ -425,14 +456,14 @@ public class WaveClient implements PaymentProviderClient {
      * Toujours {@link PaymentStatus#SUCCESS} — Wave n'émet cet événement qu'une fois l'argent
      * effectivement crédité, contrairement aux événements de checkout session.
      */
-    private com.paylance.provider.WebhookParseResult parseMerchantPaymentReceived(
+    private WebhookParseResult parseMerchantPaymentReceived(
             String eventId, com.fasterxml.jackson.databind.JsonNode data) {
         String transactionId = data.hasNonNull("id") ? data.get("id").asText() : null;
         String senderMobile = data.hasNonNull("sender_mobile") ? data.get("sender_mobile").asText() : null;
         String currency = data.hasNonNull("currency") ? data.get("currency").asText() : "XOF";
         Long amountInCents = data.hasNonNull("amount") ? toCents(data.get("amount").asText()) : null;
-        var unattributed = new com.paylance.provider.WebhookParseResult.UnattributedPayment(amountInCents, currency, senderMobile);
-        return new com.paylance.provider.WebhookParseResult(eventId, transactionId, PaymentStatus.SUCCESS, null, unattributed);
+        var unattributed = new WebhookParseResult.UnattributedPayment(amountInCents, currency, senderMobile);
+        return new WebhookParseResult(eventId, transactionId, PaymentStatus.SUCCESS, null, unattributed);
     }
 
     /** Inverse de {@link #toWaveAmount} : Wave envoie l'unité principale, Paylance stocke en centimes. */
@@ -467,7 +498,7 @@ public class WaveClient implements PaymentProviderClient {
      *
      * Si le webhook {@code checkout.session.expired} n'est jamais reçu,
      * le job de réconciliation ({@link com.paylance.service.ReconciliationService})
-     * appellera {@link #checkStatus(Payment)} et détectera l'expiration via
+     * appellera {@link #checkStatus(ProviderConnection, Payment)} et détectera l'expiration via
      * {@code checkout_status=expired}.
      */
     private PaymentStatus mapWebhookStatus(String eventType, String checkoutStatus, String paymentStatus) {

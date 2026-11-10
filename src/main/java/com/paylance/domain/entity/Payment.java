@@ -39,7 +39,7 @@ public class Payment {
 
     /** Numéro lisible affiché côté dashboard/front (ex: {@code PAY-AFR-0001}) — {@link #id}
      * reste la vraie clé technique et la référence de corrélation provider. */
-    @Column(name = "payment_number", length = 20, unique = true)
+    @Column(name = "payment_number", length = 30, unique = true)
     private String paymentNumber;
 
     /**
@@ -72,6 +72,14 @@ public class Payment {
 
     @Column(name = "callback_url", length = 500)
     private String callbackUrl;
+
+    /** URL de redirection du payeur après succès, transmise au prestataire à l'initiation. */
+    @Column(name = "success_url", length = 500)
+    private String successUrl;
+
+    /** URL de redirection du payeur après échec ou annulation. */
+    @Column(name = "error_url", length = 500)
+    private String errorUrl;
 
     @Column(name = "metadata", columnDefinition = "TEXT")
     private String metadata; // JSON libre transmis par la plateforme (items, userId...)

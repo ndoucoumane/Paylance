@@ -13,6 +13,10 @@ import com.paylance.provider.ProviderPayoutResult;
 import com.paylance.provider.ProviderRefundResult;
 import com.paylance.provider.ProviderStatusResult;
 import com.paylance.provider.WebhookParseResult;
+import com.paylance.provider.ConnectionTestResult;
+import com.paylance.provider.ProviderConnection;
+import com.paylance.provider.credentials.OrangeMoneyCredentials;
+import com.paylance.domain.enums.EnvironmentType;
 import com.paylance.web.exception.ProviderCommunicationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
@@ -30,7 +34,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.EnumMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 record OrangeMoneyRefundRequest(
         String reference,
@@ -64,15 +69,23 @@ record OrangeMoneyPayoutRequest(
 @Component
 public class OrangeMoneyClient implements PaymentProviderClient {
 
-    private final WebClient webClient;
+    private final Map<EnvironmentType, WebClient> webClients = new EnumMap<>(EnvironmentType.class);
     private final OrangeMoneyProperties properties;
     private final ObjectMapper objectMapper;
-    private final AtomicReference<CachedToken> tokenCache = new AtomicReference<>();
+    /** Un token OAuth par compte marchand : jamais partagé entre deux comptes/tenants. */
+    private final ConcurrentHashMap<String, CachedToken> tokenCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Object> tokenLocks = new ConcurrentHashMap<>();
 
     public OrangeMoneyClient(WebClient.Builder webClientBuilder, OrangeMoneyProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.webClient = webClientBuilder.baseUrl(properties.baseUrl()).build();
+        for (EnvironmentType environment : EnvironmentType.values()) {
+            webClients.put(environment, webClientBuilder.clone().baseUrl(properties.baseUrl(environment)).build());
+        }
+    }
+
+    private WebClient webClient(ProviderConnection connection) {
+        return webClients.get(connection.environment());
     }
 
     @Override
@@ -81,36 +94,37 @@ public class OrangeMoneyClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderInitiateResult initiate(Payment payment) {
+    public ProviderInitiateResult initiate(ProviderConnection connection, Payment payment) {
+        OrangeMoneyCredentials credentials = connection.credentials(OrangeMoneyCredentials.class);
         long start = System.currentTimeMillis();
         log.info("[ORANGE_MONEY_INITIATE_START] Initiation QR code Orange Money pour paymentId={}, montant={} {}",
                 payment.getId(), payment.getAmount(), payment.getCurrency());
 
         long tokenStart = System.currentTimeMillis();
-        String accessToken = getAccessToken();
+        String accessToken = getAccessToken(connection);
         long tokenDuration = System.currentTimeMillis() - tokenStart;
 
         OrangeMoneyQrCodeRequest request = new OrangeMoneyQrCodeRequest(
                 new OrangeMoneyQrCodeRequest.Money(payment.getCurrency(), toPlainAmount(payment.getAmount())),
-                properties.cancelRedirectUrl(),
-                properties.successRedirectUrl(),
-                properties.merchantCode(),
+                payment.getErrorUrl(),
+                payment.getSuccessUrl(),
+                credentials.merchantCode(),
                 Map.of("externalReference", payment.getExternalReference() != null ? payment.getExternalReference() : ""),
-                properties.merchantName(),
+                credentials.merchantName() != null ? credentials.merchantName() : credentials.merchantCode(),
                 payment.getId(),
                 String.valueOf(properties.qrCodeValiditySeconds())
         );
 
         long httpStart = System.currentTimeMillis();
         try {
-            OrangeMoneyQrCodeResponse response = webClient.post()
+            OrangeMoneyQrCodeResponse response = webClient(connection).post()
                     .uri("/api/eWallet/v4/qrcode")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(OrangeMoneyQrCodeResponse.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long httpDuration = System.currentTimeMillis() - httpStart;
@@ -138,7 +152,7 @@ public class OrangeMoneyClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderStatusResult checkStatus(Payment payment) {
+    public ProviderStatusResult checkStatus(ProviderConnection connection, Payment payment) {
         if (payment.getProviderTransactionId() == null || payment.getProviderTransactionId().isBlank()) {
             if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(LocalDateTime.now())) {
                 return new ProviderStatusResult(PaymentStatus.EXPIRED, null, "Paiement expiré sans transaction Orange Money", null);
@@ -149,16 +163,16 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         log.info("[ORANGE_MONEY_CHECK_STATUS_START] Vérification statut Orange Money pour paymentId={}, providerTransactionId={}",
                 payment.getId(), payment.getProviderTransactionId());
 
-        String accessToken = getAccessToken();
+        String accessToken = getAccessToken(connection);
         try {
-            List<OrangeMoneyTransaction> transactions = webClient.get()
+            List<OrangeMoneyTransaction> transactions = webClient(connection).get()
                     .uri(uriBuilder -> uriBuilder.path("/api/eWallet/v1/transactions")
                             .queryParam("reference", payment.getProviderTransactionId())
                             .build())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .retrieve()
                     .bodyToMono(new ParameterizedTypeReference<List<OrangeMoneyTransaction>>() { })
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -187,12 +201,12 @@ public class OrangeMoneyClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderRefundResult refund(Payment payment, Long amount, String reason) {
+    public ProviderRefundResult refund(ProviderConnection connection, Payment payment, Long amount, String reason) {
         long start = System.currentTimeMillis();
         log.info("[ORANGE_MONEY_REFUND_START] Demande de remboursement OM pour paymentId={}, amount={}, reason={}",
                 payment.getId(), amount, reason);
 
-        String accessToken = getAccessToken();
+        String accessToken = getAccessToken(connection);
         String refundPath = properties.refundEndpointPath();
         if (refundPath == null || refundPath.isBlank()) {
             log.error("[ORANGE_MONEY_REFUND_NO_ENDPOINT] Endpoint de remboursement Orange Money non configuré");
@@ -204,7 +218,7 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         // si le webhook n'a pas mis à jour le vrai transactionId Orange. Dans ce cas, on
         // interroge l'API de recherche de transactions pour le résoudre. L'endpoint de
         // refund Orange Money exige le vrai transactionId côté Orange, pas notre reference.
-        String orangeTransactionId = resolveOrangeTransactionId(payment, accessToken);
+        String orangeTransactionId = resolveOrangeTransactionId(connection, payment, accessToken);
 
         OrangeMoneyRefundRequest request = new OrangeMoneyRefundRequest(
                 orangeTransactionId,
@@ -214,14 +228,14 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         );
 
         try {
-            var response = webClient.post()
+            var response = webClient(connection).post()
                     .uri(refundPath)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -254,15 +268,13 @@ public class OrangeMoneyClient implements PaymentProviderClient {
     }
 
     @Override
-    public ProviderPayoutResult payout(Payment payment) {
+    public ProviderPayoutResult payout(ProviderConnection connection, Payment payment) {
         long start = System.currentTimeMillis();
         log.info("[ORANGE_MONEY_PAYOUT_START] Initiation versement direct (Payout) OM pour paymentId={}, montant={} {}, destinataire={}",
                 payment.getId(), payment.getAmount(), payment.getCurrency(), payment.getPayerPhone());
 
-        String accessToken = getAccessToken();
-        String payoutPath = properties.payoutEndpointPath() != null && !properties.payoutEndpointPath().isBlank()
-                ? properties.payoutEndpointPath()
-                : "/api/eWallet/v1/cashins";
+        String accessToken = getAccessToken(connection);
+        String payoutPath = properties.payoutEndpointPath();
 
         OrangeMoneyPayoutRequest request = new OrangeMoneyPayoutRequest(
                 toPlainAmount(payment.getAmount()),
@@ -272,14 +284,14 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         );
 
         try {
-            var response = webClient.post()
+            var response = webClient(connection).post()
                     .uri(payoutPath)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -326,7 +338,7 @@ public class OrangeMoneyClient implements PaymentProviderClient {
      * {@code GET /api/eWallet/v1/transactions?reference=...} pour retrouver la transaction Orange
      * associée à notre {@code payment.getId()} (envoyé comme {@code reference} à la création du QR code).
      */
-    private String resolveOrangeTransactionId(Payment payment, String accessToken) {
+    private String resolveOrangeTransactionId(ProviderConnection connection, Payment payment, String accessToken) {
         String currentId = payment.getProviderTransactionId();
 
         // Si le providerTransactionId ne ressemble pas à un UUID Paylance (format UUID v4),
@@ -340,14 +352,14 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         long start = System.currentTimeMillis();
         log.info("[ORANGE_MONEY_RESOLVE_TXID_START] providerTransactionId '{}' ressemble à un UUID Paylance — recherche du vrai transactionId Orange via /api/eWallet/v1/transactions", currentId);
         try {
-            List<OrangeMoneyTransaction> transactions = webClient.get()
+            List<OrangeMoneyTransaction> transactions = webClient(connection).get()
                     .uri(uriBuilder -> uriBuilder.path("/api/eWallet/v1/transactions")
                             .queryParam("reference", currentId)
                             .build())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .retrieve()
                     .bodyToMono(new ParameterizedTypeReference<List<OrangeMoneyTransaction>>() { })
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -377,12 +389,13 @@ public class OrangeMoneyClient implements PaymentProviderClient {
      * et renvoyé tel quel dans {@code Authorization: Basic <apiKey>} sur chaque notification.
      */
     @Override
-    public boolean verifyWebhookSignature(String rawPayload, String authorizationHeader) {
-        if (authorizationHeader == null || authorizationHeader.isBlank() || properties.callbackApiKey() == null) {
+    public boolean verifyWebhookSignature(ProviderConnection connection, String rawPayload, String authorizationHeader) {
+        String callbackApiKey = connection.webhookSecret();
+        if (authorizationHeader == null || authorizationHeader.isBlank() || callbackApiKey == null || callbackApiKey.isBlank()) {
             log.warn("[ORANGE_MONEY_SIGNATURE_EMPTY] Header Authorization manquant ou apiKey non configuré");
             return false;
         }
-        String expected = "Basic " + properties.callbackApiKey();
+        String expected = "Basic " + callbackApiKey;
         boolean valid = HmacUtil.constantTimeEquals(authorizationHeader.trim(), expected);
         log.info("[ORANGE_MONEY_SIGNATURE_CHECK] Vérification signature Orange Money: {}", valid ? "VALIDE" : "INVALIDE");
         return valid;
@@ -409,6 +422,22 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         }
     }
 
+    /**
+     * Lecture seule : obtention d'un token OAuth client_credentials ({@code POST /oauth/token}),
+     * déjà utilisé par toutes les opérations. Ne valide pas le code marchand.
+     * TODO(Orange Money) : existe-t-il un endpoint en lecture seule validant aussi le merchantCode ?
+     */
+    @Override
+    public ConnectionTestResult testConnection(ProviderConnection connection) {
+        evictToken(connection.providerAccountId());
+        try {
+            getAccessToken(connection);
+            return new ConnectionTestResult(true, "Identifiants OAuth Orange Money valides");
+        } catch (ProviderCommunicationException e) {
+            return new ConnectionTestResult(false, e.getMessage());
+        }
+    }
+
     private PaymentStatus mapStatus(String omStatus) {
         if (omStatus == null) {
             return PaymentStatus.PROCESSING;
@@ -420,29 +449,46 @@ public class OrangeMoneyClient implements PaymentProviderClient {
         };
     }
 
-    private synchronized String getAccessToken() {
-        CachedToken cached = tokenCache.get();
+    private String getAccessToken(ProviderConnection connection) {
+        String accountId = connection.providerAccountId();
+        CachedToken cached = tokenCache.get(accountId);
         if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
-            log.debug("[ORANGE_MONEY_TOKEN_CACHE_HIT] Token OAuth en cache valide");
             return cached.token();
         }
+        // Verrou par compte : deux comptes ne se bloquent pas mutuellement, mais deux appels
+        // concurrents pour le même compte ne déclenchent qu'une seule demande de token.
+        synchronized (tokenLocks.computeIfAbsent(accountId, k -> new Object())) {
+            cached = tokenCache.get(accountId);
+            if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
+                return cached.token();
+            }
+            return requestAccessToken(connection);
+        }
+    }
 
-        log.info("[ORANGE_MONEY_TOKEN_ACQUISITION_START] Demande de nouveau token OAuth client_credentials...");
+    /** Invalide le token en cache d'un compte (identifiants modifiés ou désactivés). */
+    public void evictToken(String providerAccountId) {
+        tokenCache.remove(providerAccountId);
+    }
+
+    private String requestAccessToken(ProviderConnection connection) {
+        OrangeMoneyCredentials credentials = connection.credentials(OrangeMoneyCredentials.class);
+        log.info("[ORANGE_MONEY_TOKEN_ACQUISITION_START] Demande de token OAuth pour le compte {}", connection.providerAccountId());
         long start = System.currentTimeMillis();
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "client_credentials");
-        form.add("client_id", properties.clientId());
-        form.add("client_secret", properties.clientSecret());
+        form.add("client_id", credentials.clientId());
+        form.add("client_secret", credentials.clientSecret());
 
         try {
-            OrangeMoneyTokenResponse response = webClient.post()
+            OrangeMoneyTokenResponse response = webClient(connection).post()
                     .uri("/oauth/token")
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .bodyValue(form)
                     .retrieve()
                     .bodyToMono(OrangeMoneyTokenResponse.class)
-                    .timeout(Duration.ofSeconds(15))
+                    .timeout(properties.requestTimeout())
                     .block();
 
             long duration = System.currentTimeMillis() - start;
@@ -453,7 +499,7 @@ public class OrangeMoneyClient implements PaymentProviderClient {
             }
             long ttl = response.expiresIn() != null ? response.expiresIn() : 3600L;
             CachedToken newToken = new CachedToken(response.accessToken(), Instant.now().plusSeconds(ttl - 30));
-            tokenCache.set(newToken);
+            tokenCache.put(connection.providerAccountId(), newToken);
             log.info("[ORANGE_MONEY_TOKEN_ACQUISITION_SUCCESS] Token OAuth Orange Money obtenu en {}ms (ttl={}s)", duration, ttl);
             return newToken.token();
         } catch (WebClientResponseException e) {

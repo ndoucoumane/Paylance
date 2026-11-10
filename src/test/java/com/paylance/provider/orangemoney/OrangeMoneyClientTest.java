@@ -11,6 +11,11 @@ import com.paylance.provider.ProviderStatusResult;
 import com.paylance.provider.WebhookParseResult;
 import com.paylance.web.exception.ProviderCommunicationException;
 import org.junit.jupiter.api.Test;
+import java.time.Duration;
+import com.paylance.domain.enums.EnvironmentType;
+import com.paylance.domain.enums.PaymentProvider;
+import com.paylance.provider.ProviderConnection;
+import com.paylance.provider.credentials.OrangeMoneyCredentials;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
@@ -35,10 +40,12 @@ class OrangeMoneyClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final OrangeMoneyProperties properties = new OrangeMoneyProperties(
-            "https://api.orange.test", "client-id", "client-secret",
-            "merchant-code", "Afrisurgelée", "om-callback-key",
-            "https://afrisurgelee.test/success", "https://afrisurgelee.test/cancel", 300,
-            "/api/eWallet/v4/refund", "/api/eWallet/v1/cashins");
+            "https://api.orange.test", "https://api.orange.test", 300,
+            "/api/eWallet/v4/refund", "/api/eWallet/v1/cashins", Duration.ofSeconds(15));
+    private static final ProviderConnection CONNECTION = new ProviderConnection(
+            "pa-om-1", PaymentProvider.ORANGE_MONEY, EnvironmentType.TEST,
+            new OrangeMoneyCredentials("client-id", "client-secret", "merchant-code", "Marchand Test"),
+            "om-callback-key");
 
     private static Mono<ClientResponse> json(HttpStatus status, String body) {
         return Mono.just(ClientResponse.create(status)
@@ -83,7 +90,7 @@ class OrangeMoneyClientTest {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(HttpStatus.OK, """
                 {"deepLink":"https://om.test/deeplink/1","qrcode":"data:image/png;base64,xxx"}""");
 
-        ProviderInitiateResult result = client.initiate(payment(null));
+        ProviderInitiateResult result = client.initiate(CONNECTION, payment(null));
 
         assertThat(result.providerTransactionId()).isEqualTo("pay-1");
         assertThat(result.checkoutReference()).isEqualTo("https://om.test/deeplink/1");
@@ -95,7 +102,7 @@ class OrangeMoneyClientTest {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(HttpStatus.OK, """
                 {"deepLink":null,"qrcode":"data:image/png;base64,xxx"}""");
 
-        ProviderInitiateResult result = client.initiate(payment(null));
+        ProviderInitiateResult result = client.initiate(CONNECTION, payment(null));
 
         assertThat(result.checkoutReference()).isEqualTo("data:image/png;base64,xxx");
     }
@@ -111,8 +118,8 @@ class OrangeMoneyClientTest {
             return json(HttpStatus.OK, "{\"deepLink\":\"https://om.test/deeplink/1\",\"qrcode\":null}");
         });
 
-        client.initiate(payment(null));
-        client.initiate(payment(null));
+        client.initiate(CONNECTION, payment(null));
+        client.initiate(CONNECTION, payment(null));
 
         assertThat(tokenCalls.get()).isEqualTo(1);
     }
@@ -122,7 +129,7 @@ class OrangeMoneyClientTest {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(
                 HttpStatus.BAD_REQUEST, "{\"message\":\"invalid merchant\"}");
 
-        assertThatThrownBy(() -> client.initiate(payment(null)))
+        assertThatThrownBy(() -> client.initiate(CONNECTION, payment(null)))
                 .isInstanceOf(ProviderCommunicationException.class);
     }
 
@@ -131,7 +138,7 @@ class OrangeMoneyClientTest {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(HttpStatus.OK, """
                 [{"reference":"pay-1","transactionId":"om-tx-1","status":"SUCCESS","statusReason":null}]""");
 
-        ProviderStatusResult result = client.checkStatus(payment("pay-1"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("pay-1"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(result.failureReason()).isNull();
@@ -141,7 +148,7 @@ class OrangeMoneyClientTest {
     void checkStatus_returnsProcessing_whenNoTransactionYet() {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(HttpStatus.OK, "[]");
 
-        ProviderStatusResult result = client.checkStatus(payment("pay-1"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("pay-1"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(result.rawResponse()).isNull();
@@ -152,7 +159,7 @@ class OrangeMoneyClientTest {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(HttpStatus.OK, """
                 [{"reference":"pay-1","transactionId":"om-tx-1","status":"REJECTED","statusReason":"Solde insuffisant"}]""");
 
-        ProviderStatusResult result = client.checkStatus(payment("pay-1"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("pay-1"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
         assertThat(result.failureReason()).isEqualTo("Solde insuffisant");
@@ -162,7 +169,7 @@ class OrangeMoneyClientTest {
     void checkStatus_nullProviderTransactionId_returnsFailedWithoutCallingApi() {
         OrangeMoneyClient client = clientThatMustNotBeCalled();
 
-        ProviderStatusResult result = client.checkStatus(payment(null));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment(null));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
         assertThat(result.failureReason()).contains("Aucun identifiant");
@@ -180,7 +187,7 @@ class OrangeMoneyClientTest {
             return json(HttpStatus.NOT_FOUND, "{}" );
         });
 
-        ProviderRefundResult result = client.refund(payment("pay-1"), 2500L, "client request");
+        ProviderRefundResult result = client.refund(CONNECTION, payment("pay-1"), 2500L, "client request");
 
         assertThat(result.status()).isEqualTo(RefundStatus.SUCCESS);
         assertThat(result.providerRefundId()).isEqualTo("refund-1");
@@ -191,7 +198,7 @@ class OrangeMoneyClientTest {
     void refund_returnsFailed_whenHttpErrorOccurs() {
         OrangeMoneyClient client = clientAuthenticatedThenRespondingWith(HttpStatus.BAD_REQUEST, "{\"message\":\"refund denied\"}");
 
-        ProviderRefundResult result = client.refund(payment("pay-1"), 2500L, "client request");
+        ProviderRefundResult result = client.refund(CONNECTION, payment("pay-1"), 2500L, "client request");
 
         assertThat(result.status()).isEqualTo(RefundStatus.FAILED);
         assertThat(result.failureReason()).contains("refund denied");
@@ -201,21 +208,21 @@ class OrangeMoneyClientTest {
     void verifyWebhookSignature_validBasicAuth_returnsTrue() {
         OrangeMoneyClient client = clientThatMustNotBeCalled();
 
-        assertThat(client.verifyWebhookSignature("{}", "Basic om-callback-key")).isTrue();
+        assertThat(client.verifyWebhookSignature(CONNECTION, "{}", "Basic om-callback-key")).isTrue();
     }
 
     @Test
     void verifyWebhookSignature_wrongKey_returnsFalse() {
         OrangeMoneyClient client = clientThatMustNotBeCalled();
 
-        assertThat(client.verifyWebhookSignature("{}", "Basic wrong-key")).isFalse();
+        assertThat(client.verifyWebhookSignature(CONNECTION, "{}", "Basic wrong-key")).isFalse();
     }
 
     @Test
     void verifyWebhookSignature_missingHeader_returnsFalse() {
         OrangeMoneyClient client = clientThatMustNotBeCalled();
 
-        assertThat(client.verifyWebhookSignature("{}", null)).isFalse();
+        assertThat(client.verifyWebhookSignature(CONNECTION, "{}", null)).isFalse();
     }
 
     @Test
@@ -264,7 +271,7 @@ class OrangeMoneyClientTest {
                 .payerPhone("+221771234567")
                 .build();
 
-        ProviderPayoutResult result = client.payout(payment);
+        ProviderPayoutResult result = client.payout(CONNECTION, payment);
 
         assertThat(result.providerTransactionId()).isEqualTo("om-cashin-123");
         assertThat(result.status()).isEqualTo(PaymentStatus.SUCCESS);
@@ -283,7 +290,7 @@ class OrangeMoneyClientTest {
                 .payerPhone("+221771234567")
                 .build();
 
-        ProviderPayoutResult result = client.payout(payment);
+        ProviderPayoutResult result = client.payout(CONNECTION, payment);
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
     }

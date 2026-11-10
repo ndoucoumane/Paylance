@@ -6,6 +6,7 @@ import com.paylance.domain.enums.PaymentStatus;
 import com.paylance.domain.enums.TriggeredBy;
 import com.paylance.provider.PaymentProviderClient;
 import com.paylance.provider.PaymentProviderRegistry;
+import com.paylance.provider.ProviderConnectionResolver;
 import com.paylance.provider.ProviderStatusResult;
 import com.paylance.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class ReconciliationService {
 
     private final PaymentRepository paymentRepository;
     private final PaymentProviderRegistry providerRegistry;
+    private final ProviderConnectionResolver connectionResolver;
     private final PaymentStatusTransitionService statusTransitionService;
     private final PaymentLogService paymentLogService;
 
@@ -74,7 +76,7 @@ public class ReconciliationService {
 
             PaymentProviderClient client = providerRegistry.resolve(payment.getProvider());
             long tCheck = System.currentTimeMillis();
-            ProviderStatusResult result = client.checkStatus(payment);
+            ProviderStatusResult result = client.checkStatus(connectionResolver.forPayment(payment), payment);
             long checkDuration = System.currentTimeMillis() - tCheck;
             log.info("[RECONCILIATION_STATUS_CHECK] Statut provider {} vérifié en {}ms pour paymentId={} (providerStatus={})",
                     payment.getProvider(), checkDuration, payment.getId(), result.status());

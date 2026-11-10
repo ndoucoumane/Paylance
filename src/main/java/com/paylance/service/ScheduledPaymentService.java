@@ -157,7 +157,9 @@ public class ScheduledPaymentService {
                     null,
                     scheduledPayment.getNote() != null
                             ? Map.of("note", scheduledPayment.getNote())
-                            : null
+                            : null,
+                    null,
+                    null
             );
 
             PaymentInitiateResponse response =

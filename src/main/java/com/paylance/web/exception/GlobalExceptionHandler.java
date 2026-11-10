@@ -30,6 +30,11 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, e.getMessage(), request, null);
     }
 
+    @ExceptionHandler(ProviderAccountNotConfiguredException.class)
+    public ResponseEntity<ErrorResponse> handleProviderAccountNotConfigured(ProviderAccountNotConfiguredException e, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage(), request, null);
+    }
+
     @ExceptionHandler(DuplicatePaymentRequestException.class)
     public ResponseEntity<ErrorResponse> handleDuplicate(DuplicatePaymentRequestException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, e.getMessage(), request, null);

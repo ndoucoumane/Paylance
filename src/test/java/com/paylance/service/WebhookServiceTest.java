@@ -14,6 +14,11 @@ import com.paylance.repository.PaymentRepository;
 import com.paylance.repository.WebhookEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.paylance.domain.enums.EnvironmentType;
+import com.paylance.provider.ProviderConnection;
+import com.paylance.provider.ProviderConnectionResolver;
+import com.paylance.provider.credentials.WaveCredentials;
+import static org.mockito.ArgumentMatchers.eq;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -44,16 +49,22 @@ class WebhookServiceTest {
     private PaymentNumberGenerator paymentNumberGenerator;
     @Mock
     private PaymentProviderClient waveClient;
+    @Mock
+    private ProviderConnectionResolver connectionResolver;
+
+    private static final ProviderConnection CONNECTION = new ProviderConnection(
+            "pa-1", PaymentProvider.WAVE, EnvironmentType.TEST, new WaveCredentials("k", null, null), "secret");
 
     private WebhookService webhookService;
 
     @BeforeEach
     void setUp() {
         webhookService = new WebhookService(
-                webhookEventRepository, paymentRepository, providerRegistry,
+                webhookEventRepository, paymentRepository, providerRegistry, connectionResolver,
                 statusTransitionService, paymentLogService, paymentNumberGenerator);
         when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(waveClient);
-        when(waveClient.verifyWebhookSignature(anyString(), anyString())).thenReturn(true);
+        when(connectionResolver.forAccount("pa-1")).thenReturn(CONNECTION);
+        when(waveClient.verifyWebhookSignature(eq(CONNECTION), anyString(), anyString())).thenReturn(true);
         when(webhookEventRepository.save(any(WebhookEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -63,7 +74,7 @@ class WebhookServiceTest {
         when(waveClient.parseWebhookEvent("{}")).thenReturn(parsed);
         when(paymentRepository.findByProviderTransactionId("unknown-tx")).thenReturn(Optional.empty());
 
-        webhookService.handle(PaymentProvider.WAVE, "{}", "sig");
+        webhookService.handle(PaymentProvider.WAVE, "pa-1", "{}", "sig");
 
         verify(paymentRepository, never()).save(any(Payment.class));
         verifyNoInteractions(statusTransitionService);
@@ -91,7 +102,7 @@ class WebhookServiceTest {
         when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.SUCCESS), anyString(), eq(TriggeredBy.WEBHOOK)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        webhookService.handle(PaymentProvider.WAVE, "{}", "sig");
+        webhookService.handle(PaymentProvider.WAVE, "pa-1", "{}", "sig");
 
         ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
         verify(paymentRepository).save(paymentCaptor.capture());

@@ -62,6 +62,7 @@ public class AdminController {
     private final PaymentStatusHistoryRepository paymentStatusHistoryRepository;
     private final ReconciliationService reconciliationService;
     private final WaveClient waveClient;
+    private final com.paylance.provider.ProviderConnectionResolver connectionResolver;
     private final ObjectMapper objectMapper;
 
     @Operation(summary = "Créer un lien de paiement (paiement demandé manuellement par un agent, hors flux plateforme)")
@@ -232,8 +233,8 @@ public class AdminController {
 
     @Operation(summary = "Consulter le solde du wallet WAVE")
     @GetMapping("/wallet/balance")
-    public ResponseEntity<WalletBalanceResponse> getWalletBalance() {
-        var waveBalance = waveClient.getBalance();
+    public ResponseEntity<WalletBalanceResponse> getWalletBalance(@RequestParam String providerAccountId) {
+        var waveBalance = waveClient.getBalance(connectionResolver.forAccount(providerAccountId));
         return ResponseEntity.ok(new WalletBalanceResponse(
                 waveBalance.amount(),
                 waveBalance.currency(),

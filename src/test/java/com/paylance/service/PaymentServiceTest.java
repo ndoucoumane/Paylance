@@ -8,6 +8,7 @@ import com.paylance.domain.enums.Platform;
 import com.paylance.idempotency.IdempotencyService;
 import com.paylance.provider.PaymentProviderClient;
 import com.paylance.provider.PaymentProviderRegistry;
+import com.paylance.provider.ProviderConnectionResolver;
 import com.paylance.provider.ProviderInitiateResult;
 import com.paylance.provider.ProviderPayoutResult;
 import com.paylance.repository.PaymentRepository;
@@ -61,13 +62,15 @@ class PaymentServiceTest {
     private PaymentNumberGenerator paymentNumberGenerator;
     @Mock
     private PaymentProviderClient providerClient;
+    @Mock
+    private ProviderConnectionResolver connectionResolver;
 
     private PaymentService paymentService;
 
     @BeforeEach
     void setUp() {
         paymentService = new PaymentService(
-                paymentRepository, refundRepository, providerRegistry,
+                paymentRepository, refundRepository, providerRegistry, connectionResolver,
                 idempotencyService, paymentLogService, statusTransitionService,
                 paymentNumberGenerator, new ObjectMapper());
     }
@@ -76,8 +79,8 @@ class PaymentServiceTest {
     void initiate_createsPaymentAndDelegatesToProvider() {
         PaymentInitiateRequest request = new PaymentInitiateRequest(
                 "idem-123", PaymentProvider.WAVE, 150000L, "XOF",
-                "+221771234567", "Awa Diop", "order-42", "https://afrisurgelee.test/callback",
-                30, null);
+                "+221771234567", "Awa Diop", "order-42", "https://merchant.test/callback",
+                30, null, null, null);
 
         when(paymentRepository.findByPlatformAndIdempotencyKey(Platform.AFRISURGELEE, "idem-123"))
                 .thenReturn(Optional.empty());
@@ -90,7 +93,7 @@ class PaymentServiceTest {
             return p;
         });
         when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.initiate(any(Payment.class))).thenReturn(
+        when(providerClient.initiate(any(), any(Payment.class))).thenReturn(
                 new ProviderInitiateResult("wave-tx-1", "https://wave.test/checkout/1", PaymentStatus.PROCESSING, "{}"));
         when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.PROCESSING), anyString(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -123,7 +126,7 @@ class PaymentServiceTest {
 
         PaymentInitiateRequest request = new PaymentInitiateRequest(
                 "idem-999", PaymentProvider.ORANGE_MONEY, 5000L, "XOF",
-                "+221770000000", null, null, "https://kssid.test/callback", null, null);
+                "+221770000000", null, null, "https://merchant.test/callback", null, null, null, null);
 
         PaymentInitiateResponse response = paymentService.initiate(Platform.KSSID, request);
 
@@ -144,7 +147,7 @@ class PaymentServiceTest {
             return p;
         });
         when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.initiate(any(Payment.class))).thenReturn(
+        when(providerClient.initiate(any(), any(Payment.class))).thenReturn(
                 new ProviderInitiateResult("wave-tx-link-1", "https://pay.wave.com/m/M_xxx", PaymentStatus.PROCESSING, "{}"));
         when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.PROCESSING), anyString(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -268,7 +271,7 @@ class PaymentServiceTest {
             return r;
         });
         when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.refund(eq(payment), eq(5000L), anyString()))
+        when(providerClient.refund(any(), eq(payment), eq(5000L), anyString()))
                 .thenReturn(new ProviderRefundResult("prov-ref-123", RefundStatus.SUCCESS, "{}", null));
         when(statusTransitionService.transitionStatus(any(Payment.class), any(PaymentStatus.class), anyString(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -298,7 +301,7 @@ class PaymentServiceTest {
             return p;
         });
         when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.payout(any(Payment.class)))
+        when(providerClient.payout(any(), any(Payment.class)))
                 .thenReturn(new ProviderPayoutResult("po-wave-999", PaymentStatus.SUCCESS, "{}", null));
         when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.SUCCESS), anyString(), any()))
                 .thenAnswer(invocation -> {
@@ -309,7 +312,7 @@ class PaymentServiceTest {
 
         PaymentInitiateRequest request = new PaymentInitiateRequest(
                 "SCHEDULED-sched-1", PaymentProvider.WAVE, 90000L, "XOF",
-                "+221771234567", "Destinataire", "Facture 101", null, null, null
+                "+221771234567", "Destinataire", "Facture 101", null, null, null, null, null
         );
 
         PaymentInitiateResponse response = paymentService.payout(Platform.MANUAL, request);
@@ -317,7 +320,7 @@ class PaymentServiceTest {
         assertThat(response.paymentId()).isEqualTo("pay-payout-1");
         assertThat(response.status()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(response.amount()).isEqualTo(90000L);
-        verify(providerClient).payout(any(Payment.class));
+        verify(providerClient).payout(any(), any(Payment.class));
         verify(idempotencyService).release(eq("MANUAL"), eq("SCHEDULED-sched-1"), eq("token-payout"));
     }
 }

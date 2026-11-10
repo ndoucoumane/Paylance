@@ -59,6 +59,9 @@ paylance:
     # Keycloak (dashboard) : non branché tant que cette variable est vide — les routes
     # authentifiées par JWT répondent alors 401. Aucune valeur par défaut volontairement.
     keycloak-issuer-uri: ${PAYLANCE_KEYCLOAK_ISSUER_URI:}
+    # Clé maîtresse AES-256 (32 octets, base64) chiffrant les secrets clients en base.
+    # Obligatoire : l'application refuse de démarrer sans elle. Générer : openssl rand -base64 32
+    encryption-master-key: ${PAYLANCE_ENCRYPTION_MASTER_KEY:}
     # Hash BCrypt de la clé admin (générer avec l'outil de génération de clés — voir README).
     admin-key-hash: ${ADMIN_KEY_HASH:}
     # Origines autorisées en CORS pour le(s) dashboard(s) front Paylance, séparées par des virgules.
@@ -74,31 +77,22 @@ paylance:
   scheduled-payments:
     interval-ms: ${SCHEDULED_PAYMENTS_INTERVAL_MS:60000}
 
+  # Configuration prestataire globale : uniquement des données NON secrètes et communes à tous
+  # les clients. Les identifiants (clés API, OAuth, code marchand, secrets webhook) sont propres
+  # à chaque compte prestataire d'un client, chiffrés en base (provider_accounts).
   provider:
     wave:
       base-url: ${WAVE_BASE_URL:https://api.wave.com}
-      checkout-api-key: ${WAVE_CHECKOUT_API_KEY:}
-      payout-api-key: ${WAVE_PAYOUT_API_KEY:}
-      balance-api-key: ${WAVE_BALANCE_API_KEY:}
-      webhook-secret: ${WAVE_WEBHOOK_SECRET:}
-      success-url: ${WAVE_SUCCES_URL:}
-      error-url: ${WAVE_ERROR_URL:}
       payout-endpoint-path: ${WAVE_PAYOUT_ENDPOINT_PATH:/v1/payout}
+      request-timeout: ${WAVE_REQUEST_TIMEOUT:15s}
     orange-money:
-      # API Sonatel (developer.orange-sonatel.com) — sandbox par défaut, à passer sur
-      # https://api.orange-sonatel.com en prod.
-      base-url: ${ORANGE_MONEY_BASE_URL:https://api.sandbox.orange-sonatel.com}
-      client-id: ${ORANGE_MONEY_CLIENT_ID:}
-      client-secret: ${ORANGE_MONEY_CLIENT_SECRET:}
-      merchant-code: ${ORANGE_MONEY_MERCHANT_CODE:}
-      merchant-name: ${ORANGE_MONEY_MERCHANT_NAME:Paylance}
-      # Valeur choisie par nous (pas fournie par Orange), déclarée une fois via
-      # POST /api/notification/v1/merchantcallback — voir doc Sonatel.
-      callback-api-key: ${ORANGE_MONEY_CALLBACK_API_KEY:}
-      success-redirect-url: ${ORANGE_MONEY_SUCCESS_REDIRECT_URL:}
-      cancel-redirect-url: ${ORANGE_MONEY_CANCEL_REDIRECT_URL:}
+      # API Sonatel (developer.orange-sonatel.com) : l'URL dépend de l'environnement du compte.
+      live-base-url: ${ORANGE_MONEY_LIVE_BASE_URL:https://api.orange-sonatel.com}
+      test-base-url: ${ORANGE_MONEY_TEST_BASE_URL:https://api.sandbox.orange-sonatel.com}
       qr-code-validity-seconds: ${ORANGE_MONEY_QRCODE_VALIDITY_SECONDS:300}
       refund-endpoint-path: ${ORANGE_MONEY_REFUND_ENDPOINT_PATH:/api/eWallet/v4/refund}
+      payout-endpoint-path: ${ORANGE_MONEY_PAYOUT_ENDPOINT_PATH:/api/eWallet/v1/cashins}
+      request-timeout: ${ORANGE_MONEY_REQUEST_TIMEOUT:15s}
 
 logging:
   level:

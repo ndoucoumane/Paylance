@@ -24,28 +24,30 @@ public class WebhookController {
     private final WebhookService webhookService;
 
     @Operation(summary = "Webhook Wave (checkout session)")
-    @PostMapping("/wave")
+    @PostMapping("/wave/{providerAccountId}")
     public ResponseEntity<Void> wave(
+            @PathVariable String providerAccountId,
             @RequestBody String rawPayload,
             @RequestHeader(value = "Wave-Signature", required = false) String signature) {
         long start = System.currentTimeMillis();
         log.info("[WEBHOOK_HTTP_RECEIVED] Webhook Wave reçu (taille payload: {} octets, signature présente: {})",
                 rawPayload != null ? rawPayload.length() : 0, signature != null);
-        webhookService.handle(PaymentProvider.WAVE, rawPayload, signature);
+        webhookService.handle(PaymentProvider.WAVE, providerAccountId, rawPayload, signature);
         long duration = System.currentTimeMillis() - start;
         log.info("[WEBHOOK_HTTP_COMPLETE] Webhook Wave traité en {}ms", duration);
         return ResponseEntity.ok().build();
     }
 
     @Operation(summary = "Webhook Orange Money (notification de paiement, Sonatel eWallet)")
-    @PostMapping("/orange-money")
+    @PostMapping("/orange-money/{providerAccountId}")
     public ResponseEntity<Void> orangeMoney(
+            @PathVariable String providerAccountId,
             @RequestBody String rawPayload,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         long start = System.currentTimeMillis();
         log.info("[WEBHOOK_HTTP_RECEIVED] Webhook Orange Money reçu (taille payload: {} octets, auth présente: {})",
                 rawPayload != null ? rawPayload.length() : 0, authorization != null);
-        webhookService.handle(PaymentProvider.ORANGE_MONEY, rawPayload, authorization);
+        webhookService.handle(PaymentProvider.ORANGE_MONEY, providerAccountId, rawPayload, authorization);
         long duration = System.currentTimeMillis() - start;
         log.info("[WEBHOOK_HTTP_COMPLETE] Webhook Orange Money traité en {}ms", duration);
         return ResponseEntity.ok().build();

@@ -41,6 +41,14 @@ public record PaymentInitiateRequest(
         @Positive
         Integer expiresInMinutes,
 
-        Map<String, Object> metadata
+        Map<String, Object> metadata,
+
+        /** Redirection du payeur après succès (sinon : URL par défaut de l'application). */
+        @Size(max = 500)
+        String successUrl,
+
+        /** Redirection du payeur après échec/annulation (sinon : URL par défaut de l'application). */
+        @Size(max = 500)
+        String errorUrl
 ) {
 }

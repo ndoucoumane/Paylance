@@ -18,7 +18,11 @@ import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
+import com.paylance.domain.enums.EnvironmentType;
+import com.paylance.provider.ProviderConnection;
+import com.paylance.provider.credentials.WaveCredentials;
 
 import static com.paylance.domain.enums.PaymentProvider.WAVE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,9 +39,11 @@ class WaveClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WaveProperties properties = new WaveProperties(
-            "https://api.wave.test", "wave-checkout-api-key", "wave-payout-api-key", "wave-balance-api-key",
-            WEBHOOK_SECRET, "https://afrisurgelee.test/success", "https://afrisurgelee.test/error",
-            "/v1/payout");
+            "https://api.wave.test", "/v1/payout", Duration.ofSeconds(15));
+    private static final ProviderConnection CONNECTION = new ProviderConnection(
+            "pa-wave-1", WAVE, EnvironmentType.TEST,
+            new WaveCredentials("wave-checkout-api-key", "wave-payout-api-key", "wave-balance-api-key"),
+            WEBHOOK_SECRET);
 
     private static Mono<ClientResponse> json(HttpStatus status, String body) {
         return Mono.just(ClientResponse.create(status)
@@ -80,7 +86,7 @@ class WaveClientTest {
                 {"id":"cos-1","wave_launch_url":"https://checkout.wave.test/cos-1",
                  "checkout_status":"open","payment_status":"processing"}""");
 
-        ProviderInitiateResult result = client.initiate(payment(null));
+        ProviderInitiateResult result = client.initiate(CONNECTION, payment(null));
 
         assertThat(result.providerTransactionId()).isEqualTo("cos-1");
         assertThat(result.checkoutReference()).isEqualTo("https://checkout.wave.test/cos-1");
@@ -93,7 +99,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.BAD_REQUEST, """
                 {"message":"invalid amount"}""");
 
-        assertThatThrownBy(() -> client.initiate(payment(null)))
+        assertThatThrownBy(() -> client.initiate(CONNECTION, payment(null)))
                 .isInstanceOf(ProviderCommunicationException.class);
     }
 
@@ -102,7 +108,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.OK, """
                 {"id":"cos-1","checkout_status":"complete","payment_status":"succeeded"}""");
 
-        ProviderStatusResult result = client.checkStatus(payment("cos-1"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("cos-1"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(result.failureReason()).isNull();
@@ -113,7 +119,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.OK, """
                 {"id":"cos-1","checkout_status":"expired","payment_status":"processing"}""");
 
-        ProviderStatusResult result = client.checkStatus(payment("cos-1"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("cos-1"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.EXPIRED);
     }
@@ -123,7 +129,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.OK, """
                 {"id":"cos-1","checkout_status":"complete","payment_status":"cancelled"}""");
 
-        ProviderStatusResult result = client.checkStatus(payment("cos-1"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("cos-1"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
     }
@@ -132,7 +138,7 @@ class WaveClientTest {
     void checkStatus_nullProviderTransactionId_returnsFailedOrExpiredWithoutHttpCall() {
         WaveClient client = clientThatMustNotBeCalled();
 
-        ProviderStatusResult result = client.checkStatus(payment(null));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment(null));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
         assertThat(result.failureReason()).contains("Aucun identifiant");
@@ -143,7 +149,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.NOT_FOUND, """
                 {"message":"Sorry, that URL doesn't look right."}""");
 
-        ProviderStatusResult result = client.checkStatus(payment("cos-unknown"));
+        ProviderStatusResult result = client.checkStatus(CONNECTION, payment("cos-unknown"));
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
         assertThat(result.failureReason()).contains("Session Wave introuvable");
@@ -153,7 +159,7 @@ class WaveClientTest {
     void refund_partialAmount_isRejectedWithoutCallingApi() {
         WaveClient client = clientThatMustNotBeCalled();
 
-        ProviderRefundResult result = client.refund(payment("cos-1"), 1000L, "partial");
+        ProviderRefundResult result = client.refund(CONNECTION, payment("cos-1"), 1000L, "partial");
 
         assertThat(result.status()).isEqualTo(RefundStatus.FAILED);
         assertThat(result.failureReason()).contains("remboursement total");
@@ -163,7 +169,7 @@ class WaveClientTest {
     void refund_fullAmount_succeeds() {
         WaveClient client = clientRespondingWith(HttpStatus.OK, "{\"status\":\"refunded\"}");
 
-        ProviderRefundResult result = client.refund(payment("cos-1"), 150000L, "client request");
+        ProviderRefundResult result = client.refund(CONNECTION, payment("cos-1"), 150000L, "client request");
 
         assertThat(result.status()).isEqualTo(RefundStatus.SUCCESS);
         assertThat(result.providerRefundId()).isEqualTo("cos-1");
@@ -173,7 +179,7 @@ class WaveClientTest {
     void refund_httpError_returnsFailedResult() {
         WaveClient client = clientRespondingWith(HttpStatus.INTERNAL_SERVER_ERROR, "{\"message\":\"boom\"}");
 
-        ProviderRefundResult result = client.refund(payment("cos-1"), null, "client request");
+        ProviderRefundResult result = client.refund(CONNECTION, payment("cos-1"), null, "client request");
 
         assertThat(result.status()).isEqualTo(RefundStatus.FAILED);
     }
@@ -185,7 +191,7 @@ class WaveClientTest {
         String timestamp = String.valueOf(Instant.now().getEpochSecond());
         String signature = HmacUtil.signHex(timestamp + payload, WEBHOOK_SECRET);
 
-        assertThat(client.verifyWebhookSignature(payload, "t=" + timestamp + ",v1=" + signature)).isTrue();
+        assertThat(client.verifyWebhookSignature(CONNECTION, payload, "t=" + timestamp + ",v1=" + signature)).isTrue();
     }
 
     @Test
@@ -195,7 +201,7 @@ class WaveClientTest {
         String staleTimestamp = String.valueOf(Instant.now().minusSeconds(600).getEpochSecond());
         String signature = HmacUtil.signHex(staleTimestamp + payload, WEBHOOK_SECRET);
 
-        assertThat(client.verifyWebhookSignature(payload, "t=" + staleTimestamp + ",v1=" + signature)).isFalse();
+        assertThat(client.verifyWebhookSignature(CONNECTION, payload, "t=" + staleTimestamp + ",v1=" + signature)).isFalse();
     }
 
     @Test
@@ -205,15 +211,15 @@ class WaveClientTest {
         String timestamp = String.valueOf(Instant.now().getEpochSecond());
         String signature = HmacUtil.signHex(timestamp + payload, "wrong-secret");
 
-        assertThat(client.verifyWebhookSignature(payload, "t=" + timestamp + ",v1=" + signature)).isFalse();
+        assertThat(client.verifyWebhookSignature(CONNECTION, payload, "t=" + timestamp + ",v1=" + signature)).isFalse();
     }
 
     @Test
     void verifyWebhookSignature_missingOrBlankHeader_returnsFalse() {
         WaveClient client = clientThatMustNotBeCalled();
 
-        assertThat(client.verifyWebhookSignature("{}", null)).isFalse();
-        assertThat(client.verifyWebhookSignature("{}", "")).isFalse();
+        assertThat(client.verifyWebhookSignature(CONNECTION, "{}", null)).isFalse();
+        assertThat(client.verifyWebhookSignature(CONNECTION, "{}", "")).isFalse();
     }
 
     @Test
@@ -294,7 +300,7 @@ class WaveClientTest {
                 .payerPhone("+221771234567")
                 .build();
 
-        ProviderPayoutResult result = client.payout(payment);
+        ProviderPayoutResult result = client.payout(CONNECTION, payment);
 
         assertThat(result.providerTransactionId()).isEqualTo("po-123");
         assertThat(result.status()).isEqualTo(PaymentStatus.SUCCESS);
@@ -313,7 +319,7 @@ class WaveClientTest {
                 .payerPhone("+221771234567")
                 .build();
 
-        ProviderPayoutResult result = client.payout(payment);
+        ProviderPayoutResult result = client.payout(CONNECTION, payment);
 
         assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
     }
@@ -323,7 +329,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.OK, """
                 {"amount":"15000","currency":"XOF"}""");
 
-        WaveBalanceResponse response = client.getBalance();
+        WaveBalanceResponse response = client.getBalance(CONNECTION);
 
         assertThat(response.amount()).isEqualTo("15000");
         assertThat(response.currency()).isEqualTo("XOF");
@@ -334,7 +340,7 @@ class WaveClientTest {
         WaveClient client = clientRespondingWith(HttpStatus.UNAUTHORIZED, """
                 {"message":"invalid api key"}""");
 
-        assertThatThrownBy(client::getBalance)
+        assertThatThrownBy(() -> client.getBalance(CONNECTION))
                 .isInstanceOf(ProviderCommunicationException.class);
     }
 }
