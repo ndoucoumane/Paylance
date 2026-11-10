@@ -2,7 +2,6 @@ package com.paylance.repository.spec;
 
 import com.paylance.domain.entity.ScheduledPayment;
 import com.paylance.domain.enums.PaymentProvider;
-import com.paylance.domain.enums.Platform;
 import com.paylance.domain.enums.ScheduledPaymentStatus;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
@@ -22,7 +21,7 @@ public final class ScheduledPaymentSpecifications {
             String phone,
             ScheduledPaymentStatus status,
             PaymentProvider provider,
-            Platform platform,
+            String providerAccountId,
             Long minAmount,
             Long maxAmount,
             LocalDateTime from,
@@ -64,8 +63,8 @@ public final class ScheduledPaymentSpecifications {
                 predicates.add(cb.equal(root.get("provider"), provider));
             }
 
-            if (platform != null) {
-                predicates.add(cb.equal(root.get("platform"), platform));
+            if (providerAccountId != null && !providerAccountId.isBlank()) {
+                predicates.add(cb.equal(root.get("providerAccountId"), providerAccountId));
             }
 
             if (minAmount != null) {

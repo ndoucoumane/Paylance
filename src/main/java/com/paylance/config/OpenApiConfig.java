@@ -17,14 +17,16 @@ public class OpenApiConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("Paylance API")
-                        .description("Middleware de paiement interne — orchestration Wave / Orange Money")
+                        .description("Orchestration de paiements multi-tenant (Wave, Orange Money) — les fonds vont directement sur les comptes marchands des clients, Paylance ne les détient jamais")
                         .version("v1")
                         .contact(new Contact().name("Paylance")))
                 .components(new Components()
                         .addSecuritySchemes("apiKey", new SecurityScheme()
-                                .type(SecurityScheme.Type.APIKEY).in(SecurityScheme.In.HEADER).name("X-API-Key"))
-                        .addSecuritySchemes("platform", new SecurityScheme()
-                                .type(SecurityScheme.Type.APIKEY).in(SecurityScheme.In.HEADER).name("X-Platform")))
-                .addSecurityItem(new SecurityRequirement().addList("apiKey").addList("platform"));
+                                .type(SecurityScheme.Type.HTTP).scheme("bearer")
+                                .description("Clé API d'application : pl_live_... ou pl_test_..."))
+                        .addSecuritySchemes("dashboard", new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")
+                                .description("JWT Keycloak + en-tête X-Organization-Id")))
+                .addSecurityItem(new SecurityRequirement().addList("apiKey"));
     }
 }

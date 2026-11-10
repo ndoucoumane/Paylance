@@ -12,7 +12,7 @@ import reactor.netty.http.client.HttpClient;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Client HTTP générique (callbacks vers les plateformes clientes). Les clients Wave et
+ * Client HTTP générique (callbacks vers les applications clientes). Les clients Wave et
  * Orange Money construisent leur propre {@link WebClient} avec baseUrl dédiée à partir
  * du {@link WebClient.Builder} auto-configuré par Spring Boot.
  */

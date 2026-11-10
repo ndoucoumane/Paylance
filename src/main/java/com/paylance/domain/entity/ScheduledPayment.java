@@ -1,8 +1,10 @@
 package com.paylance.domain.entity;
 
-import com.paylance.domain.enums.Platform;
 import com.paylance.domain.enums.PaymentProvider;
 import com.paylance.domain.enums.ScheduledPaymentStatus;
+import com.paylance.tenant.TenantGuardListener;
+import com.paylance.tenant.TenantOwned;
+import org.hibernate.annotations.TenantId;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -11,36 +13,36 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 /**
- * Paiement programmé depuis le dashboard admin : enregistré au statut {@code SCHEDULED},
+ * Versement (payout) programmé depuis le dashboard : enregistré au statut {@code SCHEDULED},
  * puis exécuté (véritable appel provider via {@code PaymentService#initiate}) par
  * {@code ScheduledPaymentService} dès que {@link #scheduledAt} est atteint.
  */
 @Entity
-@Table(name = "scheduled_payments", indexes = {
-        @Index(name = "idx_scheduled_payments_status_due", columnList = "status, scheduled_at"),
-        @Index(name = "idx_scheduled_payments_platform",   columnList = "platform"),
-        @Index(name = "idx_scheduled_payments_payment_id", columnList = "payment_id")
-})
+@EntityListeners(TenantGuardListener.class)
+@Table(name = "scheduled_payments")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ScheduledPayment {
+public class ScheduledPayment implements TenantOwned {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
+    @TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false, length = 36)
+    private String organizationId;
+
+    @Column(name = "provider_account_id", nullable = false, length = 36)
+    private String providerAccountId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "provider", nullable = false)
     private PaymentProvider provider;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "platform", nullable = false)
-    private Platform platform;
-
-    /** Montant en centimes XOF (cohérent avec {@link Payment#getAmount()}). */
+    /** Montant en centimes (cohérent avec {@link Payment#getAmount()}). */
     @Column(name = "amount", nullable = false)
     private Long amount;
 

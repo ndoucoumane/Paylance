@@ -1,7 +1,6 @@
 package com.paylance.web.dto;
 
 import com.paylance.domain.enums.PaymentProvider;
-import com.paylance.domain.enums.Platform;
 import com.paylance.domain.enums.ScheduledPaymentStatus;
 
 import java.time.LocalDateTime;
@@ -9,8 +8,8 @@ import java.time.LocalDateTime;
 public record ScheduledPaymentResponse(
         String id,
         PaymentProvider provider,
-        Platform platform,
-        /** Montant en centimes XOF — voir {@link ScheduledPaymentCreateRequest}. */
+        String providerAccountId,
+        /** Montant en centimes — voir {@link ScheduledPaymentCreateRequest}. */
         Long amount,
         String payerPhone,
         LocalDateTime scheduledAt,

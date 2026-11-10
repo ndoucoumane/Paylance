@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Verrou distribué (Redis SETNX + TTL) empêchant deux requêtes d'initiation identiques
- * (même plateforme + même idempotencyKey) d'être traitées en parallèle et de créer un doublon.
+ * (même organisation/application + même clé) d'être traitées en parallèle et de créer un doublon.
  */
 @Slf4j
 @Service
@@ -29,8 +29,8 @@ public class IdempotencyService {
      *
      * @return un jeton à passer à {@link #release} une fois le traitement terminé.
      */
-    public String acquireLock(String platform, String idempotencyKey) {
-        String key = buildKey(platform, idempotencyKey);
+    public String acquireLock(String scope, String idempotencyKey) {
+        String key = buildKey(scope, idempotencyKey);
         String token = UUID.randomUUID().toString();
         long start = System.currentTimeMillis();
         Boolean acquired;
@@ -52,8 +52,8 @@ public class IdempotencyService {
         return token;
     }
 
-    public void release(String platform, String idempotencyKey, String token) {
-        String key = buildKey(platform, idempotencyKey);
+    public void release(String scope, String idempotencyKey, String token) {
+        String key = buildKey(scope, idempotencyKey);
         long start = System.currentTimeMillis();
         try {
             String current = redisTemplate.opsForValue().get(key);
@@ -68,7 +68,7 @@ public class IdempotencyService {
         }
     }
 
-    private String buildKey(String platform, String idempotencyKey) {
-        return KEY_PREFIX + platform + ":" + idempotencyKey;
+    private String buildKey(String scope, String idempotencyKey) {
+        return KEY_PREFIX + scope + ":" + idempotencyKey;
     }
 }

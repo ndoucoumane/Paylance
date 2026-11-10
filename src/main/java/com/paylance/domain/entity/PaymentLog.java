@@ -1,6 +1,9 @@
 package com.paylance.domain.entity;
 
 import com.paylance.domain.enums.LogLevel;
+import com.paylance.tenant.TenantGuardListener;
+import com.paylance.tenant.TenantOwned;
+import org.hibernate.annotations.TenantId;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -13,21 +16,22 @@ import java.time.LocalDateTime;
  * Sert de trace complète pour le debug et l'audit — exigence centrale de Paylance.
  */
 @Entity
-@Table(name = "payment_logs", indexes = {
-        @Index(name = "idx_payment_logs_payment",  columnList = "payment_id"),
-        @Index(name = "idx_payment_logs_date",     columnList = "created_at"),
-        @Index(name = "idx_payment_logs_correlation", columnList = "correlation_id")
-})
+@EntityListeners(TenantGuardListener.class)
+@Table(name = "payment_logs")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PaymentLog {
+public class PaymentLog implements TenantOwned {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false, length = 36)
+    private String organizationId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "payment_id")

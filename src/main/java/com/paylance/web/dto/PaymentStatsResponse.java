@@ -7,7 +7,7 @@ public record PaymentStatsResponse(
         long totalAmount,
         List<AggregateEntry> byStatus,
         List<AggregateEntry> byProvider,
-        List<AggregateEntry> byPlatform
+        List<AggregateEntry> byApplication
 ) {
     public record AggregateEntry(String key, long count, long totalAmount) {
     }

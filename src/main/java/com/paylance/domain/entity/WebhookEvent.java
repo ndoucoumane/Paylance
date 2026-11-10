@@ -2,6 +2,9 @@ package com.paylance.domain.entity;
 
 import com.paylance.domain.enums.PaymentProvider;
 import com.paylance.domain.enums.WebhookStatus;
+import com.paylance.tenant.TenantGuardListener;
+import com.paylance.tenant.TenantOwned;
+import org.hibernate.annotations.TenantId;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -14,22 +17,26 @@ import java.time.LocalDateTime;
  * fois le même événement) et à conserver une preuve du payload + de la signature reçus.
  */
 @Entity
-@Table(name = "webhook_events", indexes = {
-        @Index(name = "idx_webhook_events_provider_event", columnList = "provider, provider_event_id"),
-        @Index(name = "idx_webhook_events_payment",         columnList = "payment_id"),
-        @Index(name = "idx_webhook_events_status",          columnList = "status"),
-        @Index(name = "idx_webhook_events_created_at",      columnList = "created_at")
-})
+@EntityListeners(TenantGuardListener.class)
+@Table(name = "webhook_events")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class WebhookEvent {
+public class WebhookEvent implements TenantOwned {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false, length = 36)
+    private String organizationId;
+
+    /** Compte prestataire destinataire du webhook (porté par l'URL appelée). */
+    @Column(name = "provider_account_id", nullable = false, length = 36)
+    private String providerAccountId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "provider", nullable = false)

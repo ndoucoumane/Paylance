@@ -1,90 +1,91 @@
 package com.paylance.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.paylance.domain.entity.Application;
+import com.paylance.domain.entity.Organization;
 import com.paylance.domain.entity.Payment;
+import com.paylance.domain.entity.ProviderAccount;
+import com.paylance.domain.entity.Refund;
+import com.paylance.domain.enums.EnvironmentType;
 import com.paylance.domain.enums.PaymentProvider;
 import com.paylance.domain.enums.PaymentStatus;
-import com.paylance.domain.enums.Platform;
+import com.paylance.domain.enums.ProviderAccountStatus;
+import com.paylance.domain.enums.RefundStatus;
 import com.paylance.idempotency.IdempotencyService;
-import com.paylance.provider.PaymentProviderClient;
-import com.paylance.provider.PaymentProviderRegistry;
-import com.paylance.provider.ProviderConnectionResolver;
-import com.paylance.provider.ProviderInitiateResult;
-import com.paylance.provider.ProviderPayoutResult;
+import com.paylance.provider.*;
+import com.paylance.provider.credentials.WaveCredentials;
+import com.paylance.repository.ApplicationRepository;
+import com.paylance.repository.OrganizationRepository;
 import com.paylance.repository.PaymentRepository;
 import com.paylance.repository.RefundRepository;
 import com.paylance.web.dto.PaymentInitiateRequest;
 import com.paylance.web.dto.PaymentInitiateResponse;
-import com.paylance.domain.entity.Refund;
-import com.paylance.domain.enums.RefundStatus;
+import com.paylance.web.dto.PaymentLinkRequest;
 import com.paylance.web.dto.RefundResponse;
 import com.paylance.web.exception.PaymentNotFoundException;
-import com.paylance.provider.ProviderRefundResult;
-import com.paylance.web.dto.RefundRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PaymentServiceTest {
 
-    @Mock
-    private PaymentRepository paymentRepository;
-    @Mock
-    private RefundRepository refundRepository;
-    @Mock
-    private PaymentProviderRegistry providerRegistry;
-    @Mock
-    private IdempotencyService idempotencyService;
-    @Mock
-    private PaymentLogService paymentLogService;
-    @Mock
-    private PaymentStatusTransitionService statusTransitionService;
-    @Mock
-    private PaymentNumberGenerator paymentNumberGenerator;
-    @Mock
-    private PaymentProviderClient providerClient;
-    @Mock
-    private ProviderConnectionResolver connectionResolver;
+    private static final String ORG = "org-1";
+    private static final String APP = "app-1";
+
+    @Mock private PaymentRepository paymentRepository;
+    @Mock private RefundRepository refundRepository;
+    @Mock private ApplicationRepository applicationRepository;
+    @Mock private OrganizationRepository organizationRepository;
+    @Mock private PaymentProviderRegistry providerRegistry;
+    @Mock private ProviderConnectionResolver connectionResolver;
+    @Mock private ProviderAccountService providerAccountService;
+    @Mock private CustomerService customerService;
+    @Mock private IdempotencyService idempotencyService;
+    @Mock private PaymentLogService paymentLogService;
+    @Mock private PaymentStatusTransitionService statusTransitionService;
+    @Mock private PaymentNumberGenerator paymentNumberGenerator;
+    @Mock private PaymentProviderClient providerClient;
 
     private PaymentService paymentService;
 
+    private final ProviderAccount account = ProviderAccount.builder()
+            .id("pa-1").organizationId(ORG).provider(PaymentProvider.WAVE)
+            .environment(EnvironmentType.LIVE).status(ProviderAccountStatus.ACTIVE).build();
+    private final ProviderConnection connection = new ProviderConnection(
+            "pa-1", PaymentProvider.WAVE, EnvironmentType.LIVE, new WaveCredentials("k", null, null), "s");
+
     @BeforeEach
     void setUp() {
-        paymentService = new PaymentService(
-                paymentRepository, refundRepository, providerRegistry, connectionResolver,
-                idempotencyService, paymentLogService, statusTransitionService,
-                paymentNumberGenerator, new ObjectMapper());
-    }
+        paymentService = new PaymentService(paymentRepository, refundRepository, applicationRepository,
+                organizationRepository, providerRegistry, connectionResolver, providerAccountService, customerService,
+                idempotencyService, paymentLogService, statusTransitionService, paymentNumberGenerator, new ObjectMapper());
 
-    @Test
-    void initiate_createsPaymentAndDelegatesToProvider() {
-        PaymentInitiateRequest request = new PaymentInitiateRequest(
-                "idem-123", PaymentProvider.WAVE, 150000L, "XOF",
-                "+221771234567", "Awa Diop", "order-42", "https://merchant.test/callback",
-                30, null, null, null);
-
-        when(paymentRepository.findByPlatformAndIdempotencyKey(Platform.AFRISURGELEE, "idem-123"))
-                .thenReturn(Optional.empty());
-        when(idempotencyService.acquireLock("AFRISURGELEE", "idem-123")).thenReturn("lock-token");
+        when(applicationRepository.findById(APP)).thenReturn(Optional.of(Application.builder()
+                .id(APP).organizationId(ORG).environment(EnvironmentType.LIVE)
+                .successUrl("https://merchant.test/ok").errorUrl("https://merchant.test/ko")
+                .callbackUrl("https://merchant.test/callback").build()));
+        when(organizationRepository.findById(ORG)).thenReturn(Optional.of(Organization.builder().id(ORG).defaultCurrency("XOF").build()));
+        when(providerAccountService.selectForNewPayment(eq(PaymentProvider.WAVE), any(), any())).thenReturn(account);
+        when(customerService.upsert(anyString(), any(), any(), any())).thenReturn("cust-1");
+        when(paymentNumberGenerator.generate()).thenReturn("PL-261110-000001-7");
+        when(idempotencyService.acquireLock(anyString(), anyString())).thenReturn("lock-token");
+        when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
+        when(connectionResolver.forPayment(any())).thenReturn(connection);
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
             Payment p = invocation.getArgument(0);
             if (p.getId() == null) {
@@ -92,235 +93,133 @@ class PaymentServiceTest {
             }
             return p;
         });
-        when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.initiate(any(), any(Payment.class))).thenReturn(
-                new ProviderInitiateResult("wave-tx-1", "https://wave.test/checkout/1", PaymentStatus.PROCESSING, "{}"));
-        when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.PROCESSING), anyString(), any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(statusTransitionService.transitionStatus(any(Payment.class), any(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    Payment p = invocation.getArgument(0);
+                    p.setStatus(invocation.getArgument(1));
+                    return p;
+                });
+    }
 
-        PaymentInitiateResponse response = paymentService.initiate(Platform.AFRISURGELEE, request);
+    private static PaymentInitiateRequest request() {
+        return new PaymentInitiateRequest(PaymentProvider.WAVE, null, 150000L, null, "+221 77 123 45 67", "Awa Diop",
+                null, null, "order-42", null, null, null, 30, null);
+    }
+
+    @Test
+    void initiate_createsPaymentOnSelectedAccount_withApplicationDefaults() {
+        when(paymentRepository.findByApplicationIdAndIdempotencyKey(APP, "idem-123")).thenReturn(Optional.empty());
+        when(providerClient.initiate(eq(connection), any(Payment.class))).thenReturn(
+                new ProviderInitiateResult("wave-tx-1", "https://wave.test/checkout/1", PaymentStatus.PROCESSING, "{}"));
+
+        PaymentInitiateResponse response = paymentService.initiate(
+                PaymentContext.forApiKey(ORG, APP, EnvironmentType.LIVE), "idem-123", request());
 
         assertThat(response.paymentId()).isEqualTo("pay-1");
-        assertThat(response.provider()).isEqualTo(PaymentProvider.WAVE);
         assertThat(response.providerCheckoutReference()).isEqualTo("https://wave.test/checkout/1");
-
-        verify(idempotencyService).release("AFRISURGELEE", "idem-123", "lock-token");
-        verify(statusTransitionService).transitionStatus(any(Payment.class), eq(PaymentStatus.PROCESSING), anyString(), any());
+        ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository, atLeastOnce()).save(captor.capture());
+        Payment created = captor.getAllValues().get(0);
+        assertThat(created.getApplicationId()).isEqualTo(APP);
+        assertThat(created.getProviderAccountId()).isEqualTo("pa-1");
+        assertThat(created.getCustomerId()).isEqualTo("cust-1");
+        assertThat(created.getEnvironment()).isEqualTo(EnvironmentType.LIVE);
+        assertThat(created.getPayerPhone()).isEqualTo("+221771234567");
+        assertThat(created.getSuccessUrl()).isEqualTo("https://merchant.test/ok");
+        assertThat(created.getCallbackUrl()).isEqualTo("https://merchant.test/callback");
+        assertThat(created.getCurrency()).isEqualTo("XOF");
+        verify(providerAccountService).selectForNewPayment(PaymentProvider.WAVE, EnvironmentType.LIVE, null);
+        verify(idempotencyService).release(ORG + ":" + APP, "idem-123", "lock-token");
     }
 
     @Test
-    void initiate_returnsExistingPayment_whenIdempotencyKeyAlreadyProcessed() {
-        Payment existing = Payment.builder()
-                .id("pay-existing")
-                .correlationId("corr-1")
-                .platform(Platform.KSSID)
-                .provider(PaymentProvider.ORANGE_MONEY)
-                .amount(5000L)
-                .currency("XOF")
-                .payerPhone("+221770000000")
-                .status(PaymentStatus.SUCCESS)
-                .build();
+    void initiate_returnsExistingPayment_whenIdempotencyKeyAlreadyUsed() {
+        Payment existing = Payment.builder().id("pay-existing").provider(PaymentProvider.WAVE)
+                .amount(5000L).currency("XOF").status(PaymentStatus.SUCCESS).build();
+        when(paymentRepository.findByApplicationIdAndIdempotencyKey(APP, "idem-999")).thenReturn(Optional.of(existing));
 
-        when(paymentRepository.findByPlatformAndIdempotencyKey(Platform.KSSID, "idem-999"))
-                .thenReturn(Optional.of(existing));
-
-        PaymentInitiateRequest request = new PaymentInitiateRequest(
-                "idem-999", PaymentProvider.ORANGE_MONEY, 5000L, "XOF",
-                "+221770000000", null, null, "https://merchant.test/callback", null, null, null, null);
-
-        PaymentInitiateResponse response = paymentService.initiate(Platform.KSSID, request);
+        PaymentInitiateResponse response = paymentService.initiate(
+                PaymentContext.forApiKey(ORG, APP, EnvironmentType.LIVE), "idem-999", request());
 
         assertThat(response.paymentId()).isEqualTo("pay-existing");
-        verifyNoInteractions(idempotencyService);
+        verifyNoInteractions(providerClient, idempotencyService);
     }
 
     @Test
-    void createPaymentLink_delegatesToInitiate_withGeneratedIdempotencyKeyAndNoCallback() {
-        when(paymentRepository.findByPlatformAndIdempotencyKey(eq(Platform.AFRISURGELEE), anyString()))
-                .thenReturn(Optional.empty());
-        when(idempotencyService.acquireLock(eq("AFRISURGELEE"), anyString())).thenReturn("lock-token");
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
-            Payment p = invocation.getArgument(0);
-            if (p.getId() == null) {
-                p.setId("pay-link-1");
-            }
-            return p;
-        });
-        when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.initiate(any(), any(Payment.class))).thenReturn(
-                new ProviderInitiateResult("wave-tx-link-1", "https://pay.wave.com/m/M_xxx", PaymentStatus.PROCESSING, "{}"));
-        when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.PROCESSING), anyString(), any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        PaymentInitiateResponse response = paymentService.createPaymentLink(
-                Platform.AFRISURGELEE, PaymentProvider.WAVE, 100_000L, "XOF", "+221771234567", "Awa Diop", null);
-
-        assertThat(response.paymentId()).isEqualTo("pay-link-1");
-        assertThat(response.providerCheckoutReference()).isEqualTo("https://pay.wave.com/m/M_xxx");
-
-        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
-        verify(paymentRepository, atLeastOnce()).save(paymentCaptor.capture());
-        Payment created = paymentCaptor.getAllValues().get(0);
-        assertThat(created.getCallbackUrl()).isNull();
-        assertThat(created.getExternalReference()).isNull();
-        assertThat(created.getIdempotencyKey()).startsWith("admin-link-");
-    }
-
-    @Test
-    void createPaymentLink_rejectsManualPlatform() {
-        assertThatThrownBy(() -> paymentService.createPaymentLink(
-                Platform.MANUAL, PaymentProvider.WAVE, 100_000L, "XOF", "+221771234567", null, null))
+    void initiate_requiresIdempotencyKey() {
+        assertThatThrownBy(() -> paymentService.initiate(PaymentContext.forApiKey(ORG, APP, EnvironmentType.LIVE), " ", request()))
                 .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(providerRegistry);
+    }
+
+    @Test
+    void initiate_withoutApplicationAndWithoutRedirectUrls_isRejected() {
+        when(paymentRepository.findByApplicationIdAndIdempotencyKey(isNull(), anyString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> paymentService.initiate(PaymentContext.forDashboard(ORG, null, "user-1"), "k", request()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("successUrl");
+        verifyNoInteractions(providerClient);
+    }
+
+    @Test
+    void initiate_marksPaymentFailed_whenProviderCallFails() {
+        when(paymentRepository.findByApplicationIdAndIdempotencyKey(APP, "idem-fail")).thenReturn(Optional.empty());
+        when(providerClient.initiate(any(), any())).thenThrow(new RuntimeException("boom"));
+
+        assertThatThrownBy(() -> paymentService.initiate(PaymentContext.forApiKey(ORG, APP, EnvironmentType.LIVE), "idem-fail", request()))
+                .hasMessage("boom");
+        verify(statusTransitionService).transitionStatus(any(Payment.class), eq(PaymentStatus.FAILED), anyString(), any());
+        verify(idempotencyService).release(anyString(), eq("idem-fail"), eq("lock-token"));
+    }
+
+    @Test
+    void createPaymentLink_generatesIdempotencyKey_andHasNoCallback() {
+        when(paymentRepository.findByApplicationIdAndIdempotencyKey(isNull(), anyString())).thenReturn(Optional.empty());
+        when(providerClient.initiate(any(), any(Payment.class))).thenReturn(
+                new ProviderInitiateResult("wave-tx-2", "https://wave.test/checkout/2", PaymentStatus.PROCESSING, "{}"));
+
+        PaymentLinkRequest link = new PaymentLinkRequest(null, PaymentProvider.WAVE, null, 2500000L, "XOF",
+                "+221771234567", "Client", "https://merchant.test/ok", "https://merchant.test/ko", 60);
+        PaymentInitiateResponse response = paymentService.createPaymentLink(PaymentContext.forDashboard(ORG, null, "user-1"), link);
+
+        assertThat(response.providerCheckoutReference()).isEqualTo("https://wave.test/checkout/2");
+        ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository, atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues().get(0).getIdempotencyKey()).startsWith("link-");
+        assertThat(captor.getAllValues().get(0).getApplicationId()).isNull();
+        assertThat(captor.getAllValues().get(0).getCallbackUrl()).isNull();
+    }
+
+    @Test
+    void payout_success_transitionsToSuccess() {
+        when(paymentRepository.findByApplicationIdAndIdempotencyKey(isNull(), eq("SCHEDULED-1"))).thenReturn(Optional.empty());
+        when(providerClient.payout(eq(connection), any(Payment.class)))
+                .thenReturn(new ProviderPayoutResult("po-wave-999", PaymentStatus.SUCCESS, "{}", null));
+
+        PaymentInitiateResponse response = paymentService.payout(PaymentContext.forSystem(ORG, "test"), "SCHEDULED-1",
+                new PaymentInitiateRequest(PaymentProvider.WAVE, "pa-1", 90000L, "XOF", "+221771234567", null,
+                        null, null, null, null, null, null, null, null));
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.SUCCESS);
+        verify(providerClient).payout(eq(connection), any(Payment.class));
     }
 
     @Test
     void getRefundsByPaymentId_returnsRefunds_whenPaymentExists() {
-        Payment payment = Payment.builder()
-                .id("pay-1")
-                .paymentNumber("PL-260817-000008-5")
-                .build();
-        Refund refund = Refund.builder()
-                .id("ref-1")
-                .payment(payment)
-                .amount(5000L)
-                .status(RefundStatus.SUCCESS)
-                .reason("Client return")
-                .providerRefundId("prov-ref-1")
-                .requestedBy("API")
-                .createdAt(LocalDateTime.now())
-                .build();
+        Payment payment = Payment.builder().id("pay-1").paymentNumber("PL-261110-000008-5").payerPhone("+221770000000").build();
+        when(paymentRepository.findById("pay-1")).thenReturn(Optional.of(payment));
+        when(refundRepository.findByPaymentIdOrderByCreatedAtDesc("pay-1")).thenReturn(List.of(
+                Refund.builder().id("ref-1").payment(payment).amount(1000L).status(RefundStatus.SUCCESS).build()));
 
-        when(paymentRepository.existsById("pay-1")).thenReturn(true);
-        when(refundRepository.findByPaymentIdOrderByCreatedAtDesc("pay-1")).thenReturn(List.of(refund));
+        List<RefundResponse> refunds = paymentService.getRefundsByPaymentId("pay-1");
 
-        List<RefundResponse> results = paymentService.getRefundsByPaymentId("pay-1");
-
-        assertThat(results).hasSize(1);
-        RefundResponse resp = results.get(0);
-        assertThat(resp.refundId()).isEqualTo("ref-1");
-        assertThat(resp.paymentId()).isEqualTo("pay-1");
-        assertThat(resp.paymentNumber()).isEqualTo("PL-260817-000008-5");
-        assertThat(resp.amount()).isEqualTo(5000L);
-        assertThat(resp.status()).isEqualTo(RefundStatus.SUCCESS);
-        assertThat(resp.reason()).isEqualTo("Client return");
-        assertThat(resp.providerRefundId()).isEqualTo("prov-ref-1");
+        assertThat(refunds).hasSize(1);
+        assertThat(refunds.get(0).paymentNumber()).isEqualTo("PL-261110-000008-5");
     }
 
     @Test
-    void getRefundsByPaymentId_throwsNotFound_whenPaymentDoesNotExist() {
-        when(paymentRepository.existsById("unknown-pay")).thenReturn(false);
-
-        assertThatThrownBy(() -> paymentService.getRefundsByPaymentId("unknown-pay"))
-                .isInstanceOf(PaymentNotFoundException.class);
-    }
-
-    @Test
-    void listRefunds_withStatusFilter_delegatesToRepository() {
-        Refund refund = Refund.builder()
-                .id("ref-1")
-                .amount(2000L)
-                .status(RefundStatus.SUCCESS)
-                .build();
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Refund> page = new PageImpl<>(List.of(refund), pageable, 1);
-
-        when(refundRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), eq(pageable))).thenReturn(page);
-
-        Page<RefundResponse> result = paymentService.listRefunds(RefundStatus.SUCCESS, pageable);
-
-        assertThat(result.getTotalElements()).isEqualTo(1);
-        assertThat(result.getContent().get(0).refundId()).isEqualTo("ref-1");
-    }
-
-    @Test
-    void listRefunds_withoutStatus_delegatesToFindAll() {
-        Refund refund = Refund.builder()
-                .id("ref-2")
-                .amount(3000L)
-                .status(RefundStatus.PENDING)
-                .build();
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Refund> page = new PageImpl<>(List.of(refund), pageable, 1);
-
-        when(refundRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), eq(pageable))).thenReturn(page);
-
-        Page<RefundResponse> result = paymentService.listRefunds(null, pageable);
-
-        assertThat(result.getTotalElements()).isEqualTo(1);
-        assertThat(result.getContent().get(0).refundId()).isEqualTo("ref-2");
-    }
-
-    @Test
-    void refund_successful_returnsRefundResponseWithPaymentNumber() {
-        Payment payment = Payment.builder()
-                .id("pay-refund-1")
-                .paymentNumber("PL-260820-000186-3")
-                .provider(PaymentProvider.WAVE)
-                .amount(10000L)
-                .status(PaymentStatus.SUCCESS)
-                .build();
-
-        when(paymentRepository.findById("pay-refund-1")).thenReturn(Optional.of(payment));
-        when(refundRepository.findByPaymentIdOrderByCreatedAtDesc("pay-refund-1")).thenReturn(List.of());
-        when(refundRepository.save(any(Refund.class))).thenAnswer(invocation -> {
-            Refund r = invocation.getArgument(0);
-            if (r.getId() == null) {
-                r.setId("ref-test-1");
-            }
-            return r;
-        });
-        when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.refund(any(), eq(payment), eq(5000L), anyString()))
-                .thenReturn(new ProviderRefundResult("prov-ref-123", RefundStatus.SUCCESS, "{}", null));
-        when(statusTransitionService.transitionStatus(any(Payment.class), any(PaymentStatus.class), anyString(), any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        RefundRequest request = new RefundRequest(5000L, "Demande client");
-        RefundResponse response = paymentService.refund("pay-refund-1", request);
-
-        assertThat(response.refundId()).isEqualTo("ref-test-1");
-        assertThat(response.paymentId()).isEqualTo("pay-refund-1");
-        assertThat(response.paymentNumber()).isEqualTo("PL-260820-000186-3");
-        assertThat(response.amount()).isEqualTo(5000L);
-        assertThat(response.status()).isEqualTo(RefundStatus.SUCCESS);
-        assertThat(response.providerRefundId()).isEqualTo("prov-ref-123");
-    }
-
-    @Test
-    void payout_success_executesAndTransitionsToSuccess() {
-        when(paymentRepository.findByPlatformAndIdempotencyKey(any(), anyString()))
-                .thenReturn(Optional.empty());
-        when(idempotencyService.acquireLock(anyString(), anyString())).thenReturn("token-payout");
-        when(paymentNumberGenerator.generate()).thenReturn("PL-260820-000999-1");
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
-            Payment p = invocation.getArgument(0);
-            if (p.getId() == null) {
-                p.setId("pay-payout-1");
-            }
-            return p;
-        });
-        when(providerRegistry.resolve(PaymentProvider.WAVE)).thenReturn(providerClient);
-        when(providerClient.payout(any(), any(Payment.class)))
-                .thenReturn(new ProviderPayoutResult("po-wave-999", PaymentStatus.SUCCESS, "{}", null));
-        when(statusTransitionService.transitionStatus(any(Payment.class), eq(PaymentStatus.SUCCESS), anyString(), any()))
-                .thenAnswer(invocation -> {
-                    Payment p = invocation.getArgument(0);
-                    p.setStatus(PaymentStatus.SUCCESS);
-                    return p;
-                });
-
-        PaymentInitiateRequest request = new PaymentInitiateRequest(
-                "SCHEDULED-sched-1", PaymentProvider.WAVE, 90000L, "XOF",
-                "+221771234567", "Destinataire", "Facture 101", null, null, null, null, null
-        );
-
-        PaymentInitiateResponse response = paymentService.payout(Platform.MANUAL, request);
-
-        assertThat(response.paymentId()).isEqualTo("pay-payout-1");
-        assertThat(response.status()).isEqualTo(PaymentStatus.SUCCESS);
-        assertThat(response.amount()).isEqualTo(90000L);
-        verify(providerClient).payout(any(), any(Payment.class));
-        verify(idempotencyService).release(eq("MANUAL"), eq("SCHEDULED-sched-1"), eq("token-payout"));
+    void getRefundsByPaymentId_throwsNotFound_whenPaymentMissing() {
+        when(paymentRepository.findById("nope")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> paymentService.getRefundsByPaymentId("nope")).isInstanceOf(PaymentNotFoundException.class);
     }
 }

@@ -1,6 +1,7 @@
 package com.paylance.web.exception;
 
 import com.paylance.common.CorrelationContext;
+import com.paylance.tenant.TenantAccessViolationException;
 import com.paylance.web.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(PaymentNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(PaymentNotFoundException e, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, e.getMessage(), request, null);
+    }
+
+    @ExceptionHandler({ResourceNotFoundException.class, TenantAccessViolationException.class})
+    public ResponseEntity<ErrorResponse> handleResourceNotFound(RuntimeException e, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, e instanceof TenantAccessViolationException ? "Ressource introuvable" : e.getMessage(), request, null);
     }
 
     @ExceptionHandler(ScheduledPaymentNotFoundException.class)
@@ -66,6 +72,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, e.getMessage(), request, null);
+    }
+
+    @ExceptionHandler(org.springframework.web.bind.MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(org.springframework.web.bind.MissingRequestHeaderException e, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "En-tête " + e.getHeaderName() + " requis", request, null);
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadable(org.springframework.http.converter.HttpMessageNotReadableException e, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "Corps de requête illisible", request, null);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

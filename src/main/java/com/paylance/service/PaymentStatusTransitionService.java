@@ -87,7 +87,7 @@ public class PaymentStatusTransitionService {
         if (newStatus == PaymentStatus.SUCCESS || newStatus == PaymentStatus.FAILED) {
             // publié après commit (voir CallbackService) pour garantir que le paiement est
             // bien visible en base avant que la notification async n'aille le relire.
-            eventPublisher.publishEvent(new PaymentStatusChangedEvent(payment.getId(), newStatus));
+            eventPublisher.publishEvent(new PaymentStatusChangedEvent(payment.getId(), payment.getOrganizationId(), newStatus));
         }
 
         long totalDuration = System.currentTimeMillis() - start;

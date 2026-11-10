@@ -3,8 +3,8 @@ package com.paylance.web.dto;
 import com.paylance.domain.enums.PaymentStatus;
 
 /**
- * Payload envoyé par Paylance à la plateforme cliente (Afrisurgelée, Kssid, Fleet360...) pour
- * l'informer qu'une commande peut être traitée (ou non).
+ * Payload du callback signé envoyé par Paylance à l'application cliente à chaque statut final
+ * d'un paiement (en-tête {@code Paylance-Signature}).
  */
 public record CallbackPayload(
         String paymentId,

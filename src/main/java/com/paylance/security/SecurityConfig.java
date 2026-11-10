@@ -1,11 +1,12 @@
 package com.paylance.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.paylance.repository.PlatformApiKeyRepository;
+import com.paylance.security.apikey.ApiKeyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -24,12 +25,21 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
+/**
+ * Trois chaînes indépendantes :
+ * <ol>
+ *   <li>API serveur à serveur ({@code /api/v1/payments/**}) : clé API uniquement ;</li>
+ *   <li>webhooks prestataires : publics, authentifiés par signature dans WebhookService ;</li>
+ *   <li>le reste (dashboard, admin, actuator, documentation) : JWT Keycloak si configuré.</li>
+ * </ol>
+ * Chaînes séparées pour qu'une clé {@code Bearer pl_...} ne soit jamais interprétée comme un JWT.
+ */
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final PlatformApiKeyRepository platformApiKeyRepository;
+    private final ApiKeyService apiKeyService;
     private final ObjectMapper objectMapper;
 
     // Keycloak non branché tant que cette valeur est vide : aucun JwtDecoder n'est alors créé
@@ -40,8 +50,6 @@ public class SecurityConfig {
     @Value("${paylance.security.admin-key-hash:}")
     private String adminKeyHash;
 
-    // Origines du/des dashboard(s) front Paylance autorisées en CORS (une par environnement,
-    // séparées par des virgules — voir PAYLANCE_DASHBOARD_ORIGINS).
     @Value("${paylance.security.dashboard-origins:http://localhost:5183}")
     private String dashboardOrigins;
 
@@ -55,48 +63,55 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(dashboardOrigins.split(",")));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of(
-                "Content-Type", "Authorization", "X-Admin-Key", "X-Platform", "X-API-Key"));
-
+        configuration.setAllowedHeaders(List.of("Content-Type", "Authorization", "Idempotency-Key",
+                "X-Organization-Id", "X-Correlation-Id"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, PasswordEncoder passwordEncoder) throws Exception {
-        ApiKeyAuthFilter apiKeyAuthFilter = new ApiKeyAuthFilter(platformApiKeyRepository, passwordEncoder, objectMapper);
-        AdminApiKeyFilter adminApiKeyFilter = new AdminApiKeyFilter(adminKeyHash, passwordEncoder, objectMapper);
+    @Order(1)
+    public SecurityFilterChain apiKeyChain(HttpSecurity http) throws Exception {
+        http.securityMatcher("/api/v1/payments/**", "/api/v1/payments")
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .anyRequest().hasRole(ApiKeyAuthenticationToken.ROLE))
+                .addFilterBefore(new ApiKeyAuthFilter(apiKeyService, objectMapper), UsernamePasswordAuthenticationFilter.class);
+        return http.build();
+    }
 
+    @Bean
+    @Order(2)
+    public SecurityFilterChain webhookChain(HttpSecurity http) throws Exception {
+        http.securityMatcher("/api/v1/webhooks/**")
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+        return http.build();
+    }
+
+    @Bean
+    @Order(3)
+    public SecurityFilterChain defaultChain(HttpSecurity http, PasswordEncoder passwordEncoder) throws Exception {
         JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
         jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(new KeycloakRoleConverter());
 
-        http
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+        http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() // preflight CORS
-                        .requestMatchers(
-                                "/actuator/health/**",
-                                "/actuator/info",
-                                "/swagger-ui.html", // point d'entrée (redirige vers /swagger-ui/index.html) — distinct de /swagger-ui/**
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/api/v1/webhooks/**" // authentifié par signature HMAC, pas par API key
-                        ).permitAll()
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/actuator/health/**", "/actuator/info",
+                                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
-                        // /api/v1/admin/** : login Keycloak (dashboard), pas la clé statique —
-                        // voir oauth2ResourceServer ci-dessous, pas addFilterBefore(adminApiKeyFilter).
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/**").hasRole("PLATFORM")
-                        .anyRequest().denyAll()
-                )
-                // Rôle realm Keycloak "admin" -> ROLE_ADMIN (KeycloakRoleConverter), donc
-                // hasRole("ADMIN") ci-dessus fonctionne pour un token Keycloak comme pour
-                // AdminApiKeyFilter (actuator uniquement désormais, voir sa Javadoc).
-                .addFilterBefore(adminApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                        .anyRequest().denyAll())
+                .addFilterBefore(new AdminApiKeyFilter(adminKeyHash, passwordEncoder, objectMapper),
+                        UsernamePasswordAuthenticationFilter.class);
 
         if (keycloakIssuerUri != null && !keycloakIssuerUri.isBlank()) {
             // Résolution paresseuse de l'issuer : pas d'appel réseau au démarrage.
@@ -105,7 +120,6 @@ public class SecurityConfig {
                     .decoder(decoder)
                     .jwtAuthenticationConverter(jwtAuthenticationConverter)));
         }
-
         return http.build();
     }
 }

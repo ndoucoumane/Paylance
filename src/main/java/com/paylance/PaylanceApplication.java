@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 // UserDetailsServiceAutoConfiguration exclu : Paylance n'utilise ni httpBasic() ni formLogin(),
-// l'authentification passe par ApiKeyAuthFilter (plateformes), AdminApiKeyFilter (actuator) et
+// l'authentification passe par ApiKeyAuthFilter (applications), AdminApiKeyFilter (actuator) et
 // le JWT Keycloak (dashboard admin). Sans cette exclusion, Spring Boot génère un utilisateur
 // "user" + mot de passe aléatoire au démarrage (loggé en clair) qui n'est câblé nulle part —
 // du bruit trompeur, pas un mécanisme réel.

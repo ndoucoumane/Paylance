@@ -1,8 +1,11 @@
 package com.paylance.domain.entity;
 
-import com.paylance.domain.enums.Platform;
+import com.paylance.domain.enums.EnvironmentType;
 import com.paylance.domain.enums.PaymentProvider;
 import com.paylance.domain.enums.PaymentStatus;
+import com.paylance.tenant.TenantGuardListener;
+import com.paylance.tenant.TenantOwned;
+import org.hibernate.annotations.TenantId;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -13,31 +16,44 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Transaction de paiement orchestrée par Paylance entre une plateforme interne
- * (Afrisurgelée, Kssid, Fleet360, ...) et un provider mobile money (Wave, Orange Money).
+ * Paiement orchestré par Paylance pour le compte d'une organisation cliente, encaissé sur le
+ * compte marchand de ce client chez le prestataire (Wave, Orange Money).
  */
 @Entity
-@Table(name = "payments", indexes = {
-        @Index(name = "idx_payments_idempotency",     columnList = "platform, idempotency_key", unique = true),
-        @Index(name = "idx_payments_platform",        columnList = "platform"),
-        @Index(name = "idx_payments_status",          columnList = "status"),
-        @Index(name = "idx_payments_external_ref",    columnList = "external_reference"),
-        @Index(name = "idx_payments_provider_txid",   columnList = "provider_transaction_id"),
-        @Index(name = "idx_payments_correlation_id",  columnList = "correlation_id"),
-        @Index(name = "idx_payments_created_at",      columnList = "created_at")
-})
+@EntityListeners(TenantGuardListener.class)
+@Table(name = "payments")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Payment {
+public class Payment implements TenantOwned {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    /** Numéro lisible affiché côté dashboard/front (ex: {@code PAY-AFR-0001}) — {@link #id}
+    @TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false, length = 36)
+    private String organizationId;
+
+    /** Application émettrice ; {@code null} pour un paiement créé depuis le dashboard ou reçu
+     * directement sur le compte marchand (lien de paiement partagé à la main). */
+    @Column(name = "application_id", length = 36)
+    private String applicationId;
+
+    /** Compte marchand du client qui encaisse : les fonds ne transitent jamais par Paylance. */
+    @Column(name = "provider_account_id", nullable = false, length = 36)
+    private String providerAccountId;
+
+    @Column(name = "customer_id", length = 36)
+    private String customerId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "environment", nullable = false, length = 10)
+    private EnvironmentType environment;
+
+    /** Numéro lisible affiché côté dashboard/front (ex: {@code PL-261110-000001-7}) — {@link #id}
      * reste la vraie clé technique et la référence de corrélation provider. */
     @Column(name = "payment_number", length = 30, unique = true)
     private String paymentNumber;
@@ -62,11 +78,7 @@ public class Payment {
     @Column(name = "correlation_id", nullable = false, length = 64)
     private String correlationId;
 
-    // ── Contexte plateforme ──
-    @Enumerated(EnumType.STRING)
-    @Column(name = "platform", nullable = false)
-    private Platform platform;
-
+    // ── Contexte client ──
     @Column(name = "external_reference", length = 100)
     private String externalReference; // orderId, bookingId...
 
@@ -82,7 +94,7 @@ public class Payment {
     private String errorUrl;
 
     @Column(name = "metadata", columnDefinition = "TEXT")
-    private String metadata; // JSON libre transmis par la plateforme (items, userId...)
+    private String metadata; // JSON libre transmis par le client (items, userId...)
 
     // ── Provider ──
     @Enumerated(EnumType.STRING)
@@ -97,7 +109,7 @@ public class Payment {
 
     // ── Montant ──
     @Column(name = "amount", nullable = false)
-    private Long amount; // en centimes XOF — jamais de Double
+    private Long amount; // en centimes — jamais de Double
 
     @Column(name = "currency", nullable = false, length = 10)
     @Builder.Default
@@ -112,7 +124,7 @@ public class Payment {
 
     /** Numéro ayant effectivement réglé le paiement côté provider, quand celui-ci le communique
      * (Orange Money via {@code subscriberMsisdn}) — peut différer de {@link #payerPhone}, déclaré
-     * par la plateforme à la création de la commande. Toujours {@code null} pour Wave. */
+     * par le client à la création de la commande. Toujours {@code null} pour Wave. */
     @Column(name = "actual_payer_phone", length = 20)
     private String actualPayerPhone;
 
@@ -125,7 +137,7 @@ public class Payment {
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
-    // ── Callback vers plateforme ──
+    // ── Callback vers l'application ──
     @Column(name = "callback_attempts")
     @Builder.Default
     private Integer callbackAttempts = 0;

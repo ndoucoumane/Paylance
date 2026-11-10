@@ -3,7 +3,6 @@ package com.paylance.repository.spec;
 import com.paylance.domain.entity.Payment;
 import com.paylance.domain.enums.PaymentProvider;
 import com.paylance.domain.enums.PaymentStatus;
-import com.paylance.domain.enums.Platform;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
@@ -17,20 +16,10 @@ public final class PaymentSpecifications {
     }
 
     public static Specification<Payment> filter(
-            Platform platform,
-            PaymentStatus status,
-            PaymentProvider provider,
-            LocalDateTime from,
-            LocalDateTime to
-    ) {
-        return filter(null, null, null, platform, status, provider, null, null, from, to);
-    }
-
-    public static Specification<Payment> filter(
             String query,
             String paymentNumber,
             String phone,
-            Platform platform,
+            String applicationId,
             PaymentStatus status,
             PaymentProvider provider,
             Long minAmount,
@@ -65,8 +54,8 @@ public final class PaymentSpecifications {
                 predicates.add(cb.like(cb.lower(root.get("payerPhone")), "%" + phone.trim().toLowerCase() + "%"));
             }
 
-            if (platform != null) {
-                predicates.add(cb.equal(root.get("platform"), platform));
+            if (applicationId != null && !applicationId.isBlank()) {
+                predicates.add(cb.equal(root.get("applicationId"), applicationId));
             }
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));

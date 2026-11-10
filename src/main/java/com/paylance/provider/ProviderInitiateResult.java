@@ -7,7 +7,7 @@ import com.paylance.domain.enums.PaymentStatus;
  */
 public record ProviderInitiateResult(
         String providerTransactionId,
-        /** URL/code de checkout à retourner éventuellement à la plateforme cliente. */
+        /** URL/code de checkout à retourner éventuellement à l'application cliente. */
         String checkoutReference,
         PaymentStatus status,
         String rawResponse

@@ -1,39 +1,17 @@
 package com.paylance;
 
+import com.paylance.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Vérifie que le contexte Spring démarre correctement et que la migration Flyway
- * (V1__init_schema.sql) s'applique sans erreur sur une vraie base Postgres.
- * Nécessite Docker — à exécuter en CI ou en local avec Docker disponible.
- */
-@Testcontainers
-@SpringBootTest
-class PaylanceApplicationIT {
-
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("paylance")
-            .withUsername("paylance")
-            .withPassword("paylance");
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-    }
+/** Le contexte démarre et la migration V1 est cohérente avec le mapping JPA (ddl-auto=validate). */
+class PaylanceApplicationIT extends AbstractIntegrationTest {
 
     @Test
-    void contextLoads() {
-        assertThat(postgres.isRunning()).isTrue();
+    void contextLoads_andSchemaIsValid() {
+        Integer applied = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class);
+        assertThat(applied).isEqualTo(1);
     }
 }

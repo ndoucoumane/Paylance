@@ -1,5 +1,6 @@
 package com.paylance.security;
 
+import com.paylance.security.apikey.ApiKeyPrincipal;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
@@ -7,10 +8,12 @@ import java.util.List;
 
 public class ApiKeyAuthenticationToken extends AbstractAuthenticationToken {
 
-    private final PlatformPrincipal principal;
+    public static final String ROLE = "API_CLIENT";
 
-    public ApiKeyAuthenticationToken(PlatformPrincipal principal) {
-        super(List.of(new SimpleGrantedAuthority("ROLE_PLATFORM")));
+    private final ApiKeyPrincipal principal;
+
+    public ApiKeyAuthenticationToken(ApiKeyPrincipal principal) {
+        super(List.of(new SimpleGrantedAuthority("ROLE_" + ROLE)));
         this.principal = principal;
         setAuthenticated(true);
     }
@@ -21,7 +24,7 @@ public class ApiKeyAuthenticationToken extends AbstractAuthenticationToken {
     }
 
     @Override
-    public Object getPrincipal() {
+    public ApiKeyPrincipal getPrincipal() {
         return principal;
     }
 }

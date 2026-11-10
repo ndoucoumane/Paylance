@@ -9,6 +9,7 @@ import com.paylance.provider.PaymentProviderRegistry;
 import com.paylance.provider.ProviderConnectionResolver;
 import com.paylance.provider.ProviderStatusResult;
 import com.paylance.repository.PaymentRepository;
+import com.paylance.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,12 +44,14 @@ public class ReconciliationService {
     public void reconcilePendingPayments() {
         long start = System.currentTimeMillis();
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(staleAfterMinutes);
-        List<Payment> stalePayments = paymentRepository.findByStatusInAndCreatedAtBefore(STALE_STATUSES, threshold);
+        // Lecture transverse (mode système), puis chaque paiement est traité dans son propre tenant.
+        List<Payment> stalePayments = TenantContext.callAsSystem(
+                () -> paymentRepository.findByStatusInAndCreatedAtBefore(STALE_STATUSES, threshold));
         if (stalePayments.isEmpty()) {
             return;
         }
         log.info("[RECONCILIATION_JOB_START] {} paiement(s) en attente à vérifier auprès des providers", stalePayments.size());
-        stalePayments.forEach(this::reconcileOne);
+        stalePayments.forEach(p -> TenantContext.runAs(p.getOrganizationId(), () -> reconcileOne(p)));
         long duration = System.currentTimeMillis() - start;
         log.info("[RECONCILIATION_JOB_COMPLETE] Job de réconciliation terminé en {}ms pour {} paiement(s)", duration, stalePayments.size());
     }

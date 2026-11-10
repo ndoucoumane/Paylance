@@ -15,7 +15,7 @@
     <artifactId>paylance</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>paylance</name>
-    <description>Paylance - Middleware de paiement interne (orchestration Wave / Orange Money)</description>
+    <description>Paylance - Orchestration de paiements multi-tenant (Wave, Orange Money)</description>
 
     <properties>
         <java.version>17</java.version>
@@ -149,7 +149,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>1.20.1</version>
+                <version>1.21.4</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -159,6 +159,31 @@
     <build>
         <finalName>paylance</finalName>
         <plugins>
+            <!-- Tests unitaires (*Test) : sans Docker. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=UTC</argLine>
+                </configuration>
+            </plugin>
+            <!-- Tests d'intégration (*IT) : Testcontainers PostgreSQL + Redis, exécutés par `mvn verify`
+                 (nécessite Docker). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=UTC</argLine>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

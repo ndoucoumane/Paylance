@@ -1,6 +1,9 @@
 package com.paylance.domain.entity;
 
 import com.paylance.domain.enums.RefundStatus;
+import com.paylance.tenant.TenantGuardListener;
+import com.paylance.tenant.TenantOwned;
+import org.hibernate.annotations.TenantId;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -12,20 +15,22 @@ import java.time.LocalDateTime;
  * Remboursement (total ou partiel) d'un paiement, initié via le provider d'origine.
  */
 @Entity
-@Table(name = "refunds", indexes = {
-        @Index(name = "idx_refunds_payment", columnList = "payment_id"),
-        @Index(name = "idx_refunds_status",  columnList = "status")
-})
+@EntityListeners(TenantGuardListener.class)
+@Table(name = "refunds")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Refund {
+public class Refund implements TenantOwned {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false, length = 36)
+    private String organizationId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "payment_id", nullable = false)

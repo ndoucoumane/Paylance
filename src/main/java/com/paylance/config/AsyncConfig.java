@@ -8,8 +8,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
- * Active l'exécution asynchrone (callbacks vers les plateformes clientes) et le retry
- * déclaratif ({@code @Retryable}) utilisé par {@link com.paylance.service.PlatformCallbackSender}
+ * Active l'exécution asynchrone (callbacks vers les applications clientes) et le retry
+ * déclaratif ({@code @Retryable}) utilisé par {@link com.paylance.service.ApplicationCallbackSender}
  * et {@link com.paylance.service.PaymentStatusTransitionService#transitionStatus}.
  */
 @Configuration

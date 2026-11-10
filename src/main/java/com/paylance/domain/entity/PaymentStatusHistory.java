@@ -2,6 +2,9 @@ package com.paylance.domain.entity;
 
 import com.paylance.domain.enums.PaymentStatus;
 import com.paylance.domain.enums.TriggeredBy;
+import com.paylance.tenant.TenantGuardListener;
+import com.paylance.tenant.TenantOwned;
+import org.hibernate.annotations.TenantId;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -12,20 +15,22 @@ import java.time.LocalDateTime;
  * Trace immuable de chaque transition de statut d'un paiement (audit + reconstruction du parcours).
  */
 @Entity
-@Table(name = "payment_status_history", indexes = {
-        @Index(name = "idx_status_history_payment", columnList = "payment_id"),
-        @Index(name = "idx_status_history_date",    columnList = "created_at")
-})
+@EntityListeners(TenantGuardListener.class)
+@Table(name = "payment_status_history")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PaymentStatusHistory {
+public class PaymentStatusHistory implements TenantOwned {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false, length = 36)
+    private String organizationId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "payment_id", nullable = false)

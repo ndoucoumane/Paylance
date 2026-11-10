@@ -17,13 +17,13 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
- * Notifie la plateforme cliente du résultat final d'un paiement (webhook sortant vers son
+ * Notifie l'application cliente du résultat final d'un paiement (webhook sortant vers son
  * {@code callbackUrl}), avec retry + backoff exponentiel. Chaque tentative est journalisée.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PlatformCallbackSender {
+public class ApplicationCallbackSender {
 
     private static final int MAX_ATTEMPTS = 5;
 
@@ -33,7 +33,7 @@ public class PlatformCallbackSender {
     private final ObjectMapper objectMapper;
 
     // Pas de @Transactional ici : ne pas tenir une connexion JDBC ouverte pendant l'appel
-    // réseau sortant (potentiellement lent) vers la plateforme cliente. Chaque sauvegarde
+    // réseau sortant (potentiellement lent) vers l'application cliente. Chaque sauvegarde
     // committe individuellement dans sa propre mini-transaction.
     @Retryable(
             retryFor = Exception.class,
