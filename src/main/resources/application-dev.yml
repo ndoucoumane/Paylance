@@ -1,0 +1,47 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  datasource:
+    # Garde une valeur par défaut ici (contrairement à staging/prod) : confort en local si .env
+    # n'est pas sourcé, la DB pointée reste sans risque (instance docker-compose locale).
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/kebpay}
+    username: ${KEBPAY_DB_USER:kebpay}
+    password: ${KEBPAY_DB_PASSWORD:kebpay}
+    hikari:
+      pool-name: kebpay-hikari
+      maximum-pool-size: 5
+      minimum-idle: 2
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Confort local : pas de Keycloak dédié au dev, on pointe sur le realm staging partagé.
+          issuer-uri: ${KEBPAY_KEYCLOAK_ISSUER_URI:https://auth.dev.keblink.com/realms/kebpay-staging}
+
+  jpa:
+    show-sql: false
+
+  flyway:
+    validate-on-migrate: true
+    out-of-order: true
+    # pas de baseline-on-migrate : la DB locale est toujours créée depuis V1, jamais de schéma
+    # préexistant à "baseliner" comme ça peut arriver en staging/prod.
+
+server:
+  port: ${SERVER_PORT:8082}
+
+logging:
+  level:
+    root: INFO
+    com.kebpay: DEBUG
+    # Requêtes SELECT coupées (bruit) — les erreurs SQL restent visibles via les loggers
+    # Hibernate/Spring par défaut (WARN/ERROR), non affectés par ce réglage.
+    org.hibernate.SQL: WARN
+
+management:
+  endpoint:
+    health:
+      show-details: always

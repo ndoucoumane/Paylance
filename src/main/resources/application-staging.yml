@@ -1,0 +1,37 @@
+spring:
+  config:
+    activate:
+      on-profile: staging
+
+  datasource:
+    # Pas de valeur par défaut : si l'EnvironmentFile du serveur staging est incomplet,
+    # le démarrage échoue immédiatement plutôt que de retomber silencieusement sur autre chose.
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${KEBPAY_DB_USER}
+    password: ${KEBPAY_DB_PASSWORD}
+    hikari:
+      pool-name: kebpay-hikari
+      maximum-pool-size: 5
+      minimum-idle: 2
+
+  jpa:
+    show-sql: false
+
+  flyway:
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    out-of-order: true
+
+server:
+  port: ${SERVER_PORT:8082}
+
+logging:
+  level:
+    root: INFO
+    com.kebpay: INFO
+    org.hibernate.SQL: WARN
+
+management:
+  endpoint:
+    health:
+      show-details: when-authorized

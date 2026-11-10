@@ -1,0 +1,112 @@
+spring:
+  application:
+    name: kebpay
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        format_sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # baseline-on-migrate / validate-on-migrate / out-of-order : définis par profil
+    # (application-dev/staging/prod.yml), pas ici — voir ces fichiers.
+
+  data:
+    redis:
+      host: ${KEBPAY_REDIS_HOST:localhost}
+      port: ${KEBPAY_REDIS_PORT:6379}
+      password: ${KEBPAY_REDIS_PASSWORD:}
+      timeout: 3000ms
+
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Pas de valeur par défaut ici (comme datasource.url) : si l'EnvironmentFile du
+          # serveur staging/prod est incomplet, le démarrage échoue immédiatement plutôt que
+          # de retomber silencieusement sur le Keycloak d'un autre environnement. Défaut
+          # confort local dans application-dev.yml uniquement.
+          issuer-uri: ${KEBPAY_KEYCLOAK_ISSUER_URI}
+
+server:
+  shutdown: graceful
+  # port : défini par profil (application-dev/staging/prod.yml) — chaque environnement a le sien.
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: kebpay
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+kebpay:
+  security:
+    # Hash BCrypt de la clé admin (générer avec l'outil de génération de clés — voir README).
+    admin-key-hash: ${ADMIN_KEY_HASH:}
+    # Origines autorisées en CORS pour le(s) dashboard(s) front KebPay, séparées par des virgules.
+    dashboard-origins: ${KEBPAY_DASHBOARD_ORIGINS:http://localhost:5183}
+
+  reconciliation:
+    # Filet de sécurité pour webhook perdu/non reçu, pas le chemin de confirmation principal
+    # (voir ReconciliationService) — ces valeurs bornent juste le pire cas si le webhook
+    # provider échoue, elles ne remplacent pas un webhook correctement configuré.
+    interval-ms: ${RECONCILIATION_INTERVAL_MS:300000}
+    stale-after-minutes: ${RECONCILIATION_STALE_AFTER_MINUTES:10}
+
+  scheduled-payments:
+    interval-ms: ${SCHEDULED_PAYMENTS_INTERVAL_MS:60000}
+
+  provider:
+    wave:
+      base-url: ${WAVE_BASE_URL:https://api.wave.com}
+      checkout-api-key: ${WAVE_CHECKOUT_API_KEY:}
+      payout-api-key: ${WAVE_PAYOUT_API_KEY:}
+      balance-api-key: ${WAVE_BALANCE_API_KEY:}
+      webhook-secret: ${WAVE_WEBHOOK_SECRET:}
+      success-url: ${WAVE_SUCCES_URL:https://kebpay.internal/wave/success}
+      error-url: ${WAVE_ERROR_URL:https://kebpay.internal/wave/error}
+      payout-endpoint-path: ${WAVE_PAYOUT_ENDPOINT_PATH:/v1/payout}
+    orange-money:
+      # API Sonatel (developer.orange-sonatel.com) — sandbox par défaut, à passer sur
+      # https://api.orange-sonatel.com en prod.
+      base-url: ${ORANGE_MONEY_BASE_URL:https://api.sandbox.orange-sonatel.com}
+      client-id: ${ORANGE_MONEY_CLIENT_ID:}
+      client-secret: ${ORANGE_MONEY_CLIENT_SECRET:}
+      merchant-code: ${ORANGE_MONEY_MERCHANT_CODE:}
+      merchant-name: ${ORANGE_MONEY_MERCHANT_NAME:KebPay}
+      # Valeur choisie par nous (pas fournie par Orange), déclarée une fois via
+      # POST /api/notification/v1/merchantcallback — voir doc Sonatel.
+      callback-api-key: ${ORANGE_MONEY_CALLBACK_API_KEY:}
+      success-redirect-url: ${ORANGE_MONEY_SUCCESS_REDIRECT_URL:https://kebpay.internal/om/success}
+      cancel-redirect-url: ${ORANGE_MONEY_CANCEL_REDIRECT_URL:https://kebpay.internal/om/cancel}
+      qr-code-validity-seconds: ${ORANGE_MONEY_QRCODE_VALIDITY_SECONDS:300}
+      refund-endpoint-path: ${ORANGE_MONEY_REFUND_ENDPOINT_PATH:/api/eWallet/v4/refund}
+
+logging:
+  level:
+    root: INFO
+    com.kebpay: INFO
