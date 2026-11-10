@@ -1,29 +1,29 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: kebpay-postgres
+    container_name: paylance-postgres
     environment:
-      POSTGRES_DB: ${KEBPAY_DB_NAME:-kebpay}
-      POSTGRES_USER: ${KEBPAY_DB_USER:-kebpay}
-      POSTGRES_PASSWORD: ${KEBPAY_DB_PASSWORD:-kebpay}
+      POSTGRES_DB: ${PAYLANCE_DB_NAME:-paylance}
+      POSTGRES_USER: ${PAYLANCE_DB_USER:-paylance}
+      POSTGRES_PASSWORD: ${PAYLANCE_DB_PASSWORD:-paylance}
     ports:
-      - "${KEBPAY_DB_PORT:-5432}:5432"
+      - "${PAYLANCE_DB_PORT:-5432}:5432"
     volumes:
-      - kebpay_postgres_data:/var/lib/postgresql/data
+      - paylance_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${KEBPAY_DB_USER:-kebpay} -d ${KEBPAY_DB_NAME:-kebpay}"]
+      test: ["CMD-SHELL", "pg_isready -U ${PAYLANCE_DB_USER:-paylance} -d ${PAYLANCE_DB_NAME:-paylance}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
-    container_name: kebpay-redis
+    container_name: paylance-redis
     ports:
-      - "${KEBPAY_REDIS_PORT:-6379}:6379"
+      - "${PAYLANCE_REDIS_PORT:-6379}:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - kebpay_redis_data:/data
+      - paylance_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,12 +32,12 @@ services:
 
   adminer:
     image: adminer:latest
-    container_name: kebpay-adminer
+    container_name: paylance-adminer
     ports:
       - "8081:8080"
     depends_on:
       - postgres
 
 volumes:
-  kebpay_postgres_data:
-  kebpay_redis_data:
+  paylance_postgres_data:
+  paylance_redis_data:

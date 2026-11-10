@@ -1,4 +1,4 @@
-# KebPay — commandes de développement local
+# Paylance — commandes de développement local
 # Copier .env.example -> .env avant utilisation.
 #
 # Note : .env n'est PAS chargé via `include` (GNU Make interprète lui-même les `$`,
@@ -10,11 +10,11 @@
 .PHONY: help dev db build run test migrate stop down logs clean keys
 
 help: ## Affiche cette aide
-	@echo "KebPay — commandes disponibles :"
+	@echo "Paylance — commandes disponibles :"
 	@grep -hE '^[a-zA-Z_-]+:.*## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
 dev: ## Démarre tout l'environnement local (DB + Redis, build, run)
-	@echo "Démarrage de l'environnement local KebPay..."
+	@echo "Démarrage de l'environnement local Paylance..."
 	docker compose up -d
 	@echo "Attente de la base de données..."
 	sleep 5
@@ -37,7 +37,7 @@ migrate: ## Applique les migrations Flyway sans démarrer l'application
 	set -a && . ./.env && set +a && mvn flyway:info flyway:migrate
 
 keys: ## Génère une clé API plateforme (clé en clair + hash BCrypt)
-	mvn -q compile exec:java -Dexec.mainClass=com.kebpay.tools.ApiKeyGeneratorCli
+	mvn -q compile exec:java -Dexec.mainClass=com.paylance.tools.ApiKeyGeneratorCli
 
 logs: ## Affiche les logs des conteneurs (Postgres, Redis, Adminer)
 	docker compose logs -f

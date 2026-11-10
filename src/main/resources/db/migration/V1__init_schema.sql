@@ -1,4 +1,4 @@
--- KebPay initial schema
+-- Paylance initial schema
 
 CREATE TABLE platform_api_keys (
     id              VARCHAR(36) PRIMARY KEY,

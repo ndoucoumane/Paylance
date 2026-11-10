@@ -1,5 +1,5 @@
-// Déploiement KebPay (staging) — serveur 164.68.98.49, agent Jenkins local à cette machine.
-// Suppose que les variables d'environnement applicatives (KEBPAY_DB_*, WAVE_*, ORANGE_MONEY_*,
+// Déploiement Paylance (staging) — serveur 164.68.98.49, agent Jenkins local à cette machine.
+// Suppose que les variables d'environnement applicatives (PAYLANCE_DB_*, WAVE_*, ORANGE_MONEY_*,
 // ADMIN_KEY_HASH...) sont déjà configurées côté serveur (ex: EnvironmentFile= du service systemd),
 // ce pipeline ne gère que le build et le déploiement du jar, pas les secrets applicatifs.
 pipeline {
@@ -12,11 +12,11 @@ pipeline {
     }
 
     environment {
-        APP_NAME = "kebpay-backend"
-        JAR_FILE = "target/kebpay.jar"
-        DEPLOY_PATH = "/opt/kebpay/kebpay-backend-staging/app.jar"
-        SERVICE_NAME = "kebpay_staging"
-        BACKUP_DIR = "/opt/kebpay/kebpay-backups/kebpay_staging/"
+        APP_NAME = "paylance-backend"
+        JAR_FILE = "target/paylance.jar"
+        DEPLOY_PATH = "/opt/paylance/paylance-backend-staging/app.jar"
+        SERVICE_NAME = "paylance_staging"
+        BACKUP_DIR = "/opt/paylance/paylance-backups/paylance_staging/"
         HEALTH_URL = "http://localhost:8082/actuator/health"
     }
 
