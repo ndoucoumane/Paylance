@@ -1,8 +1,8 @@
-# KebPay
+# Paylance
 
 Middleware de paiement interne : couche invisible entre les plateformes internes
 (Afrisurgelée, Kssid, Fleet360) et les providers mobile money (Wave,
-Orange Money). KebPay centralise, sécurise et orchestre tous les flux de paiement,
+Orange Money). Paylance centralise, sécurise et orchestre tous les flux de paiement,
 avec traçabilité complète de chaque transaction.
 
 ## Stack
@@ -16,7 +16,7 @@ avec traçabilité complète de chaque transaction.
 ## Architecture
 
 ```
-com.kebpay
+com.paylance
 ├── domain/{entity,enums}     Modèle métier (Payment, Refund, WebhookEvent, PaymentLog...)
 ├── repository/                Spring Data JPA
 ├── provider/                  Intégrations Wave / Orange Money derrière PaymentProviderClient
@@ -30,11 +30,11 @@ com.kebpay
 ### Cycle de vie d'un paiement
 
 1. Une plateforme appelle `POST /api/v1/payments` (auth `X-Platform` / `X-API-Key`).
-2. KebPay pose un verrou Redis sur `(platform, idempotencyKey)`, crée le `Payment` (PENDING),
+2. Paylance pose un verrou Redis sur `(platform, idempotencyKey)`, crée le `Payment` (PENDING),
    puis appelle le provider (`PaymentProviderClient.initiate`).
-3. Le provider notifie KebPay via webhook (`POST /api/v1/webhooks/wave|orange-money`),
+3. Le provider notifie Paylance via webhook (`POST /api/v1/webhooks/wave|orange-money`),
    signature HMAC vérifiée avant tout traitement.
-4. KebPay transitionne le statut (`PaymentStatusHistory` + `PaymentLog` systématiques),
+4. Paylance transitionne le statut (`PaymentStatusHistory` + `PaymentLog` systématiques),
    puis notifie la plateforme cliente sur son `callbackUrl` (retry + backoff exponentiel).
 5. Un job planifié (`ReconciliationService`) reprend les paiements restés PENDING/PROCESSING
    trop longtemps et interroge directement le provider (filet de sécurité anti-webhook-perdu).
@@ -96,7 +96,7 @@ make keys
 ```
 ```
 Clé API en clair (à transmettre une seule fois à la plateforme) :
-kbp_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg
+pl_live_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg
 
 Hash BCrypt (à stocker dans platform_api_keys.api_key_hash) :
 $2a$12$XdXHmiOSFsxRT2wZ7iggGevu6nQx7uD0M2VMhwtDR2Bs.xJXOe8ni
@@ -104,7 +104,7 @@ $2a$12$XdXHmiOSFsxRT2wZ7iggGevu6nQx7uD0M2VMhwtDR2Bs.xJXOe8ni
 
 **b. Insérer le hash en base** (une ligne par plateforme, remplacer `AFRISURGELEE` et le hash) :
 ```bash
-docker exec -i kebpay-postgres psql -U kebpay -d kebpay -c "
+docker exec -i paylance-postgres psql -U paylance -d paylance -c "
 INSERT INTO platform_api_keys (id, platform, label, api_key_hash, is_active, created_at, updated_at)
 VALUES (gen_random_uuid()::text, 'AFRISURGELEE', 'local-dev', '\$2a\$12\$XdXHmiOSFsxRT2wZ7iggGevu6nQx7uD0M2VMhwtDR2Bs.xJXOe8ni', true, now(), now());
 "
@@ -121,7 +121,7 @@ headers `X-API-Key`. Elle n'est récupérable nulle part ailleurs une fois gén�
 curl -X POST http://localhost:8082/api/v1/payments \
   -H "Content-Type: application/json" \
   -H "X-Platform: AFRISURGELEE" \
-  -H "X-API-Key: kbp_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg" \
+  -H "X-API-Key: pl_live_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg" \
   -d '{
     "idempotencyKey": "order-'"$(date +%s)"'",
     "provider": "WAVE",
@@ -129,7 +129,7 @@ curl -X POST http://localhost:8082/api/v1/payments \
     "payerPhone": "+221771234567",
     "payerName": "Awa Diop",
     "externalReference": "order-42",
-    "callbackUrl": "https://afrisurgelee.test/kebpay/callback"
+    "callbackUrl": "https://afrisurgelee.test/paylance/callback"
   }'
 ```
 
@@ -144,7 +144,7 @@ curl -X POST http://localhost:8082/api/v1/payments \
 ```bash
 curl http://localhost:8082/api/v1/payments/<paymentId> \
   -H "X-Platform: AFRISURGELEE" \
-  -H "X-API-Key: kbp_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg"
+  -H "X-API-Key: pl_live_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg"
 ```
 
 **Rembourser** (uniquement si le paiement est `SUCCESS`) :
@@ -152,7 +152,7 @@ curl http://localhost:8082/api/v1/payments/<paymentId> \
 curl -X POST http://localhost:8082/api/v1/payments/<paymentId>/refunds \
   -H "Content-Type: application/json" \
   -H "X-Platform: AFRISURGELEE" \
-  -H "X-API-Key: kbp_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg" \
+  -H "X-API-Key: pl_live_MhkSAfRSpXnrJLPsiyYMjXHJJwfYQDbbwFTClZPDXMg" \
   -d '{"reason": "commande annulée"}'
 ```
 
@@ -207,7 +207,7 @@ Sans signature valide → `401` (comportement attendu, c'est la protection qui f
 | Symptôme | Cause probable | Solution |
 |---|---|---|
 | Réponse HTML "No valid crumb..." au lieu de JSON | Un autre service (souvent Jenkins) écoute sur le port testé | Vérifier qu'on appelle bien `:8082`, pas `:8080` |
-| `Port XXXX was already in use` au démarrage | Une instance KebPay tourne déjà (IDE, terminal précédent...) | `lsof -i :8082` pour identifier le process, l'arrêter avant de relancer |
+| `Port XXXX was already in use` au démarrage | Une instance Paylance tourne déjà (IDE, terminal précédent...) | `lsof -i :8082` pour identifier le process, l'arrêter avant de relancer |
 | Hash BCrypt corrompu / auth admin échoue toujours | `$` non protégé dans `.env` ou lors d'un `INSERT` psql en shell | Entourer de guillemets simples dans `.env` ; échapper en `\$` dans une commande shell |
 | `401` sur `/api/v1/payments` | Clé API absente/inactive/expirée en base, ou mauvais header `X-Platform` | Vérifier `platform_api_keys.is_active` et que la clé en clair correspond bien au hash inséré |
 | `409 Conflict` sur initiation | Même `idempotencyKey` réutilisée pour la même plateforme | Utiliser une nouvelle valeur à chaque test |
@@ -220,14 +220,14 @@ Sans signature valide → `401` (comportement attendu, c'est la protection qui f
 ```bash
 make build   # mvn clean install -DskipTests
 make test    # tests unitaires (Mockito)
-mvn -Dtest=KebpayApplicationIT test   # test d'intégration Testcontainers — nécessite Docker
+mvn -Dtest=PaylanceApplicationIT test   # test d'intégration Testcontainers — nécessite Docker
 ```
 
 ## Sécurité
 
-- **Plateformes → KebPay** : headers `X-Platform` + `X-API-Key`, comparés en BCrypt
+- **Plateformes → Paylance** : headers `X-Platform` + `X-API-Key`, comparés en BCrypt
   contre `platform_api_keys.api_key_hash` (jamais de clé en clair en base).
-- **Providers → KebPay (webhooks)** : signature HMAC-SHA256 vérifiée sur le corps brut
+- **Providers → Paylance (webhooks)** : signature HMAC-SHA256 vérifiée sur le corps brut
   de la requête avant tout parsing, comparaison en temps constant.
 - **Admin/reconciliation** : header `X-Admin-Key` séparé, non lié à une plateforme.
 

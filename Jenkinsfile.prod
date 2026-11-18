@@ -1,7 +1,7 @@
-// Déploiement KebPay (production) — serveur 164.68.98.49, même machine que staging mais
+// Déploiement Paylance (production) — serveur 180.149.196.68, même machine que staging mais
 // chemins/service distincts. Suppose que les variables d'environnement applicatives
-// (KEBPAY_DB_*, WAVE_*, ORANGE_MONEY_*, ADMIN_KEY_HASH...) sont déjà configurées côté serveur
-// (EnvironmentFile= du service systemd kebpay_prod) — ce pipeline ne gère que le build et le
+// (PAYLANCE_DB_*, PAYLANCE_ENCRYPTION_MASTER_KEY, PAYLANCE_KEYCLOAK_ISSUER_URI...) sont déjà configurées côté serveur
+// (EnvironmentFile= du service systemd paylance_prod) — ce pipeline ne gère que le build et le
 // déploiement du jar, pas les secrets applicatifs.
 pipeline {
     agent any
@@ -13,12 +13,13 @@ pipeline {
     }
 
     environment {
-        APP_NAME = "kebpay-backend"
-        JAR_FILE = "target/kebpay.jar"
-        DEPLOY_PATH = "/opt/kebpay/kebpay-backend-prod/app.jar"
-        SERVICE_NAME = "kebpay_prod"
-        BACKUP_DIR = "/opt/kebpay/kebpay-backups/kebpay_prod/"
-        HEALTH_URL = "http://localhost:8085/actuator/health"
+        APP_NAME = "paylance-backend"
+        JAR_FILE = "target/paylance.jar"
+        DEPLOY_PATH = "/opt/paylance/paylance-backend-prod/app.jar"
+        SERVICE_NAME = "paylance_prod"
+        BACKUP_DIR = "/opt/paylance/paylance-backups/paylance_prod/"
+        // Actuator servi sur le port de management (127.0.0.1), voir application-prod.yml
+        HEALTH_URL = "http://localhost:8095/actuator/health"
     }
 
     stages {

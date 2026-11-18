@@ -6,20 +6,19 @@ spring:
   datasource:
     # Garde une valeur par défaut ici (contrairement à staging/prod) : confort en local si .env
     # n'est pas sourcé, la DB pointée reste sans risque (instance docker-compose locale).
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/kebpay}
-    username: ${KEBPAY_DB_USER:kebpay}
-    password: ${KEBPAY_DB_PASSWORD:kebpay}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/paylance}
+    username: ${PAYLANCE_DB_USER:paylance}
+    password: ${PAYLANCE_DB_PASSWORD:paylance}
     hikari:
-      pool-name: kebpay-hikari
+      pool-name: paylance-hikari
       maximum-pool-size: 5
       minimum-idle: 2
 
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          # Confort local : pas de Keycloak dédié au dev, on pointe sur le realm staging partagé.
-          issuer-uri: ${KEBPAY_KEYCLOAK_ISSUER_URI:https://auth.dev.keblink.com/realms/kebpay-staging}
+
+  data:
+    redis:
+      # docker-compose local : Redis exposé sur 6383 (6379 souvent pris par d'autres projets)
+      port: ${PAYLANCE_REDIS_PORT:6383}
 
   jpa:
     show-sql: false
@@ -33,15 +32,21 @@ spring:
 server:
   port: ${SERVER_PORT:8082}
 
+paylance:
+  callbacks:
+    allow-private-networks: ${PAYLANCE_CALLBACKS_ALLOW_PRIVATE_NETWORKS:true}
+
 logging:
   level:
     root: INFO
-    com.kebpay: DEBUG
+    com.paylance: DEBUG
     # Requêtes SELECT coupées (bruit) — les erreurs SQL restent visibles via les loggers
     # Hibernate/Spring par défaut (WARN/ERROR), non affectés par ce réglage.
     org.hibernate.SQL: WARN
 
 management:
+  server:
+    port: ${PAYLANCE_MANAGEMENT_PORT:8092}
   endpoint:
     health:
       show-details: always

@@ -15,7 +15,7 @@
     <springProfile name="!dev &amp; !test">
         <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-                <customFields>{"application":"kebpay"}</customFields>
+                <customFields>{"application":"paylance"}</customFields>
                 <includeMdcKeyName>correlationId</includeMdcKeyName>
             </encoder>
         </appender>
