@@ -35,6 +35,10 @@ server:
   # port : défini par profil (application-dev/staging/prod.yml) — chaque environnement a le sien.
 
 management:
+  # Actuator (métriques, Prometheus...) servi sur un port dédié, lié à 127.0.0.1 : jamais exposé
+  # publiquement, pas de clé statique à gérer. Port défini par profil.
+  server:
+    address: ${PAYLANCE_MANAGEMENT_ADDRESS:127.0.0.1}
   endpoints:
     web:
       exposure:
@@ -62,8 +66,6 @@ paylance:
     # Clé maîtresse AES-256 (32 octets, base64) chiffrant les secrets clients en base.
     # Obligatoire : l'application refuse de démarrer sans elle. Générer : openssl rand -base64 32
     encryption-master-key: ${PAYLANCE_ENCRYPTION_MASTER_KEY:}
-    # Hash BCrypt de la clé admin (générer avec l'outil de génération de clés — voir README).
-    admin-key-hash: ${ADMIN_KEY_HASH:}
     # Origines autorisées en CORS pour le(s) dashboard(s) front Paylance, séparées par des virgules.
     dashboard-origins: ${PAYLANCE_DASHBOARD_ORIGINS:http://localhost:5183}
 
@@ -73,6 +75,14 @@ paylance:
     # provider échoue, elles ne remplacent pas un webhook correctement configuré.
     interval-ms: ${RECONCILIATION_INTERVAL_MS:300000}
     stale-after-minutes: ${RECONCILIATION_STALE_AFTER_MINUTES:10}
+
+  # URL publique de l'API, utilisée pour afficher aux clients l'URL de webhook à déclarer chez
+  # le prestataire (ex : https://api.paylance.example).
+  public-base-url: ${PAYLANCE_PUBLIC_BASE_URL:http://localhost:8082}
+
+  callbacks:
+    # Développement local uniquement : autorise les callbacks vers localhost / réseaux privés.
+    allow-private-networks: ${PAYLANCE_CALLBACKS_ALLOW_PRIVATE_NETWORKS:false}
 
   scheduled-payments:
     interval-ms: ${SCHEDULED_PAYMENTS_INTERVAL_MS:60000}

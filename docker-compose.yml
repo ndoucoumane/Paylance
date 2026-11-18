@@ -1,13 +1,15 @@
+# Ports et noms de conteneurs propres à ce projet (5434 / 6383 / 8083) : d'autres projets locaux
+# utilisent déjà 5432, 6379, 8081 et les noms paylance-postgres / paylance-redis.
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: paylance-postgres
+    container_name: paylance-backend-postgres
     environment:
       POSTGRES_DB: ${PAYLANCE_DB_NAME:-paylance}
       POSTGRES_USER: ${PAYLANCE_DB_USER:-paylance}
       POSTGRES_PASSWORD: ${PAYLANCE_DB_PASSWORD:-paylance}
     ports:
-      - "${PAYLANCE_DB_PORT:-5432}:5432"
+      - "${PAYLANCE_DB_PORT:-5434}:5432"
     volumes:
       - paylance_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,9 +20,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: paylance-redis
+    container_name: paylance-backend-redis
     ports:
-      - "${PAYLANCE_REDIS_PORT:-6379}:6379"
+      - "${PAYLANCE_REDIS_PORT:-6383}:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - paylance_redis_data:/data
@@ -32,9 +34,9 @@ services:
 
   adminer:
     image: adminer:latest
-    container_name: paylance-adminer
+    container_name: paylance-backend-adminer
     ports:
-      - "8081:8080"
+      - "${PAYLANCE_ADMINER_PORT:-8083}:8080"
     depends_on:
       - postgres
 

@@ -11,9 +11,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Extrait les rôles realm Keycloak ({@code realm_access.roles}) et les convertit en autorités
- * Spring Security ({@code ROLE_ADMIN}, ...), pour que {@code hasRole("ADMIN")} fonctionne avec
- * un rôle realm Keycloak nommé {@code admin} (voir {@link SecurityConfig}).
+ * Rôles realm Keycloak ({@code realm_access.roles}) → autorités Spring Security
+ * ({@code paylance_super_admin} → {@code ROLE_PAYLANCE_SUPER_ADMIN}). Les rôles propres à une
+ * organisation (OWNER, ADMIN...) ne viennent pas de Keycloak mais de organization_members
+ * (voir OrganizationContextFilter).
  */
 public class KeycloakRoleConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 

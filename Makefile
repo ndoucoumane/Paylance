@@ -1,13 +1,12 @@
 # Paylance — commandes de développement local
 # Copier .env.example -> .env avant utilisation.
 #
-# Note : .env n'est PAS chargé via `include` (GNU Make interprète lui-même les `$`,
-# ce qui casserait les hashs BCrypt du type $2a$12$...). Les cibles qui ont besoin
+# Note : .env n'est PAS chargé via `include` (GNU Make interprète lui-même les `$`). Les cibles qui ont besoin
 # des variables (run, dev, migrate) les sourcent via le shell à l'exécution.
 
 .DEFAULT_GOAL := help
 
-.PHONY: help dev db build run test migrate stop down logs clean keys
+.PHONY: help dev db build run test verify migrate stop down logs clean
 
 help: ## Affiche cette aide
 	@echo "Paylance — commandes disponibles :"
@@ -30,14 +29,14 @@ build: ## Compile le projet (sans les tests)
 run: ## Lance l'application (nécessite `make db` au préalable)
 	set -a && . ./.env && set +a && mvn spring-boot:run
 
-test: ## Lance les tests unitaires
+test: ## Lance les tests unitaires (sans Docker)
 	mvn test
+
+verify: ## Tests unitaires + tests d'intégration Testcontainers (nécessite Docker)
+	mvn verify
 
 migrate: ## Applique les migrations Flyway sans démarrer l'application
 	set -a && . ./.env && set +a && mvn flyway:info flyway:migrate
-
-keys: ## Génère une clé API plateforme (clé en clair + hash BCrypt)
-	mvn -q compile exec:java -Dexec.mainClass=com.paylance.tools.ApiKeyGeneratorCli
 
 logs: ## Affiche les logs des conteneurs (Postgres, Redis, Adminer)
 	docker compose logs -f
