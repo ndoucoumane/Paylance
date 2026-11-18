@@ -12,7 +12,7 @@ public interface OrganizationMemberRepository extends JpaRepository<Organization
     Optional<OrganizationMember> findByKeycloakUserId(String keycloakUserId);
 
     /** À appeler en mode système : toutes les appartenances d'un utilisateur. */
-    List<OrganizationMember> findAllByKeycloakUserId(String keycloakUserId);
+    List<OrganizationMember> findAllByKeycloakUserIdOrderByCreatedAtAscIdAsc(String keycloakUserId);
 
     List<OrganizationMember> findAllByOrderByCreatedAtAsc();
 

@@ -13,7 +13,7 @@ public record OrangeMoneyCredentials(String clientId, String clientSecret, Strin
     public OrangeMoneyCredentials {
         if (clientId == null || clientId.isBlank() || clientSecret == null || clientSecret.isBlank()
                 || merchantCode == null || merchantCode.isBlank()) {
-            throw new IllegalArgumentException("clientId, clientSecret et merchantCode sont requis pour un compte Orange Money");
+            throw new IllegalArgumentException("Les identifiants clientId, clientSecret et merchantCode sont obligatoires pour un compte Orange Money.");
         }
     }
 

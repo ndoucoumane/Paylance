@@ -14,4 +14,6 @@ public interface ProviderAccountRepository extends JpaRepository<ProviderAccount
             PaymentProvider provider, EnvironmentType environment, ProviderAccountStatus status);
 
     List<ProviderAccount> findAllByOrderByCreatedAtAsc();
+
+    boolean existsByStatus(ProviderAccountStatus status);
 }

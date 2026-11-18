@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paylance.security.apikey.ApiKeyPrincipal;
 import com.paylance.security.apikey.ApiKeyService;
 import com.paylance.tenant.TenantContext;
+import com.paylance.common.CorrelationContext;
 import com.paylance.web.dto.ErrorResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,7 +18,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -62,7 +63,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     private void writeUnauthorized(HttpServletRequest request, HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), new ErrorResponse(LocalDateTime.now(), HttpStatus.UNAUTHORIZED.value(),
-                "Unauthorized", message, request.getRequestURI(), null, null));
+        response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name()); // messages accentués
+        objectMapper.writeValue(response.getWriter(), new ErrorResponse(Instant.now(), HttpStatus.UNAUTHORIZED.value(),
+                "Unauthorized", message, request.getRequestURI(), CorrelationContext.current(), null));
     }
 }

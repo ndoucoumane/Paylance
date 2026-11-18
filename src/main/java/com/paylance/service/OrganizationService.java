@@ -1,5 +1,6 @@
 package com.paylance.service;
 
+import com.paylance.common.ReferenceData;
 import com.paylance.common.Slugs;
 import com.paylance.domain.entity.Organization;
 import com.paylance.domain.entity.OrganizationMember;
@@ -8,6 +9,7 @@ import com.paylance.domain.enums.OrganizationStatus;
 import com.paylance.repository.OrganizationMemberRepository;
 import com.paylance.repository.OrganizationRepository;
 import com.paylance.tenant.TenantContext;
+import com.paylance.web.exception.BusinessRuleException;
 import com.paylance.web.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,12 +37,22 @@ public class OrganizationService {
     /** Crée une organisation ; l'utilisateur qui la crée en devient OWNER. */
     public Membership create(String name, String requestedSlug, String country, String defaultCurrency,
                              String keycloakUserId, String email) {
+        String normalizedCountry = country == null ? null : country.trim().toUpperCase();
+        if (!ReferenceData.isSupportedCountry(normalizedCountry)) {
+            throw new BusinessRuleException("Ce pays n'est pas encore pris en charge.");
+        }
+        String currency = defaultCurrency != null && !defaultCurrency.isBlank()
+                ? defaultCurrency.trim().toUpperCase()
+                : ReferenceData.defaultCurrencyFor(normalizedCountry);
+        if (!ReferenceData.isSupportedCurrency(currency)) {
+            throw new BusinessRuleException("Cette devise n'est pas prise en charge.");
+        }
         String slug = uniqueSlug(requestedSlug != null && !requestedSlug.isBlank() ? requestedSlug : name);
         Organization organization = organizationRepository.save(Organization.builder()
                 .name(name.trim())
                 .slug(slug)
-                .country(country.toUpperCase())
-                .defaultCurrency(defaultCurrency != null && !defaultCurrency.isBlank() ? defaultCurrency.toUpperCase() : "XOF")
+                .country(normalizedCountry)
+                .defaultCurrency(currency)
                 .status(OrganizationStatus.ACTIVE)
                 .build());
         TenantContext.runAs(organization.getId(), () -> memberRepository.save(OrganizationMember.builder()
@@ -52,9 +64,14 @@ public class OrganizationService {
         return new Membership(organization, MemberRole.OWNER);
     }
 
-    /** Organisations dont l'utilisateur est membre (lecture transverse, mode système). */
+    /**
+     * Organisations dont l'utilisateur est membre (lecture transverse, mode système), de la plus
+     * ancienne adhésion à la plus récente. Ordre stable : le front prend la première, aussi bien
+     * dans {@code GET /organizations} que dans {@code GET /me}.
+     */
     public List<Membership> listForUser(String keycloakUserId) {
-        List<OrganizationMember> memberships = TenantContext.callAsSystem(() -> memberRepository.findAllByKeycloakUserId(keycloakUserId));
+        List<OrganizationMember> memberships = TenantContext.callAsSystem(
+                () -> memberRepository.findAllByKeycloakUserIdOrderByCreatedAtAscIdAsc(keycloakUserId));
         Map<String, Organization> organizations = organizationRepository
                 .findAllById(memberships.stream().map(OrganizationMember::getOrganizationId).toList()).stream()
                 .collect(Collectors.toMap(Organization::getId, Function.identity()));

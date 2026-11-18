@@ -57,7 +57,11 @@ public class Refund implements TenantOwned {
     private String failureReason;
 
     @Column(name = "requested_by", length = 150)
-    private String requestedBy; // identifiant/email de l'opérateur ou "API"
+    private String requestedBy; // nom affichable de l'auteur, ou "API:<applicationId>"
+
+    /** sub Keycloak de l'auteur, pour l'audit ; null pour une application (clé API). */
+    @Column(name = "requested_by_user_id", length = 64)
+    private String requestedByUserId;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

@@ -13,7 +13,7 @@ public record WaveCredentials(String checkoutApiKey, String payoutApiKey, String
 
     public WaveCredentials {
         if (checkoutApiKey == null || checkoutApiKey.isBlank()) {
-            throw new IllegalArgumentException("checkoutApiKey est requis pour un compte Wave");
+            throw new IllegalArgumentException("La clé checkoutApiKey est obligatoire pour un compte Wave.");
         }
     }
 

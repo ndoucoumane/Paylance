@@ -25,6 +25,23 @@ public interface PaymentRepository extends JpaRepository<Payment, String>, JpaSp
 
     Optional<Payment> findByPaymentNumber(String paymentNumber);
 
+    /**
+     * Charge un paiement avec un verrou de ligne jusqu'à la fin de la transaction, pour
+     * sérialiser les opérations sur le solde remboursable : deux remboursements simultanés du
+     * même paiement s'exécutent l'un après l'autre, le second voit la réservation du premier.
+     *
+     * <p>{@code FOR NO KEY UPDATE} et non {@code FOR UPDATE} : les écritures de journal faites en
+     * {@code REQUIRES_NEW} (payment_logs, clé étrangère vers payments) prennent un verrou
+     * {@code FOR KEY SHARE} sur ce paiement ; {@code FOR UPDATE} les bloquerait jusqu'à la fin de
+     * la transaction qui les attend, soit un interblocage que PostgreSQL ne détecte pas.
+     *
+     * <p>Requête native, donc <b>non filtrée par {@code @TenantId}</b> : l'organisation est passée
+     * explicitement. Toujours appeler avec {@code TenantContext.requireOrganizationId()}.
+     */
+    @Query(value = "SELECT * FROM payments WHERE id = :id AND organization_id = :organizationId FOR NO KEY UPDATE",
+            nativeQuery = true)
+    Optional<Payment> findByIdForUpdate(@Param("id") String id, @Param("organizationId") String organizationId);
+
     /** Réconciliation (mode système) : paiements de tous les tenants restés en attente. */
     List<Payment> findByStatusInAndCreatedAtBefore(List<PaymentStatus> statuses, LocalDateTime threshold);
 

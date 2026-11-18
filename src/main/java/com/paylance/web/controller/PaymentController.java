@@ -64,7 +64,7 @@ public class PaymentController {
             @PathVariable String paymentId,
             @Valid @RequestBody RefundRequest request) {
         ownPayment(authentication, paymentId);
-        RefundResponse response = refundService.refund(paymentId, request, "API:" + authentication.getPrincipal().applicationId());
+        RefundResponse response = refundService.refund(paymentId, request, "API:" + authentication.getPrincipal().applicationId(), null);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

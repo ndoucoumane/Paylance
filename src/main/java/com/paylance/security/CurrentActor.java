@@ -20,6 +20,38 @@ public final class CurrentActor {
         return null;
     }
 
+    /**
+     * Nom à afficher pour l'utilisateur courant (« Prénom Nom »), lu dans le jeton validé.
+     * Repli : claim {@code name}, puis e-mail, puis {@code sub}.
+     */
+    public static String displayName() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (!(authentication instanceof JwtAuthenticationToken jwt)) {
+            return describe();
+        }
+        var token = jwt.getToken();
+        String fullName = (text(token.getClaimAsString("given_name")) + " " + text(token.getClaimAsString("family_name"))).trim();
+        if (!fullName.isEmpty()) {
+            return truncate(fullName);
+        }
+        for (String claim : new String[]{"name", "email"}) {
+            String value = text(token.getClaimAsString(claim)).trim();
+            if (!value.isEmpty()) {
+                return truncate(value);
+            }
+        }
+        return token.getSubject();
+    }
+
+    private static String text(String value) {
+        return value == null ? "" : value;
+    }
+
+    /** Colonne requested_by : 150 caractères. */
+    private static String truncate(String value) {
+        return value.length() <= 150 ? value : value.substring(0, 150);
+    }
+
     public static String describe() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication instanceof JwtAuthenticationToken jwt) {

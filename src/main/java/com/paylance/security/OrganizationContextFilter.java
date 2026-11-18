@@ -6,7 +6,9 @@ import com.paylance.domain.enums.OrganizationStatus;
 import com.paylance.repository.OrganizationRepository;
 import com.paylance.service.OrganizationService;
 import com.paylance.tenant.TenantContext;
+import com.paylance.common.CorrelationContext;
 import com.paylance.web.dto.ErrorResponse;
+import com.paylance.web.exception.ErrorMessages;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,7 +24,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -55,7 +57,7 @@ public class OrganizationContextFilter extends OncePerRequestFilter {
         }
         String organizationId = request.getHeader(OrganizationAccess.HEADER);
         if (organizationId == null || organizationId.isBlank()) {
-            write(request, response, HttpStatus.BAD_REQUEST, "En-tête " + OrganizationAccess.HEADER + " requis");
+            write(request, response, HttpStatus.BAD_REQUEST, "En-tête " + OrganizationAccess.HEADER + " requis.");
             return;
         }
         boolean organizationActive = organizationRepository.findById(organizationId)
@@ -71,7 +73,7 @@ public class OrganizationContextFilter extends OncePerRequestFilter {
             log.warn("[SUPER_ADMIN_ACCESS] {} accède à l'organisation {}", jwt.getToken().getSubject(), organizationId);
         }
         if (role.isEmpty()) {
-            write(request, response, HttpStatus.FORBIDDEN, "Accès refusé à cette organisation");
+            write(request, response, HttpStatus.FORBIDDEN, ErrorMessages.NOT_A_MEMBER);
             return;
         }
 
@@ -89,7 +91,8 @@ public class OrganizationContextFilter extends OncePerRequestFilter {
     private void write(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message) throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), new ErrorResponse(LocalDateTime.now(), status.value(),
-                status.getReasonPhrase(), message, request.getRequestURI(), null, null));
+        response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name()); // messages accentués
+        objectMapper.writeValue(response.getWriter(), new ErrorResponse(Instant.now(), status.value(),
+                status.getReasonPhrase(), message, request.getRequestURI(), CorrelationContext.current(), null));
     }
 }

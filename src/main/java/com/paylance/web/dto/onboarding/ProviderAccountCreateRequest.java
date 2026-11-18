@@ -19,10 +19,12 @@ import java.util.Map;
  * choisie par le marchand et déclarée pour les notifications.
  */
 public record ProviderAccountCreateRequest(
-        @NotNull PaymentProvider provider,
-        @NotBlank @Size(max = 150) String label,
-        @NotNull EnvironmentType environment,
-        @NotEmpty Map<String, String> credentials,
-        @Size(max = 500) String webhookSecret
+        @NotNull(message = "Choisissez le prestataire.") PaymentProvider provider,
+        @NotBlank(message = "Donnez un nom à ce compte.")
+        @Size(max = 150, message = "Le nom du compte ne doit pas dépasser 150 caractères.") String label,
+        @NotNull(message = "Choisissez l'environnement (test ou production).") EnvironmentType environment,
+        @NotEmpty(message = "Renseignez les identifiants du compte.")
+        @Size(max = 10, message = "Trop d'identifiants envoyés.") Map<String, String> credentials,
+        @Size(max = 500, message = "La clé de signature ne doit pas dépasser 500 caractères.") String webhookSecret
 ) {
 }

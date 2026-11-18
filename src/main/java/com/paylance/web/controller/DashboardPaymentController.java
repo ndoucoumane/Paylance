@@ -26,7 +26,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -52,6 +51,8 @@ public class DashboardPaymentController {
     private final PaymentStatusHistoryRepository paymentStatusHistoryRepository;
     private final ObjectMapper objectMapper;
 
+    private static final java.util.Set<String> PAYMENT_SORT_FIELDS = java.util.Set.of("createdAt", "amount");
+
     @Operation(summary = "Créer un lien de paiement")
     @PostMapping("/payments/links")
     public ResponseEntity<PaymentInitiateResponse> createPaymentLink(@Valid @RequestBody PaymentLinkRequest request) {
@@ -71,18 +72,19 @@ public class DashboardPaymentController {
             @RequestParam(required = false) PaymentProvider provider,
             @RequestParam(required = false) Long minAmount,
             @RequestParam(required = false) Long maxAmount,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) LocalDateTime from,
+            @RequestParam(required = false) LocalDateTime to,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        requireSortableBy(pageable, PAYMENT_SORT_FIELDS);
         var spec = PaymentSpecifications.filter(q, paymentNumber, phone, applicationId, status, provider, minAmount, maxAmount, from, to);
-        return ResponseEntity.ok(paymentRepository.findAll(spec, pageable).map(paymentService::toStatusResponse));
+        return ResponseEntity.ok(paymentService.toStatusResponses(paymentRepository.findAll(spec, pageable)));
     }
 
     @Operation(summary = "Statistiques agrégées (statut, prestataire, application)")
     @GetMapping("/payments/stats")
     public ResponseEntity<PaymentStatsResponse> getStats(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+            @RequestParam(required = false) LocalDateTime from,
+            @RequestParam(required = false) LocalDateTime to) {
         List<PaymentStatsResponse.AggregateEntry> byStatus = paymentRepository.aggregateByStatus(from, to).stream()
                 .map(a -> new PaymentStatsResponse.AggregateEntry(a.getStatus().name(), a.getCount(), a.getTotalAmount())).toList();
         List<PaymentStatsResponse.AggregateEntry> byProvider = paymentRepository.aggregateByProvider(from, to).stream()
@@ -127,7 +129,8 @@ public class DashboardPaymentController {
     @PostMapping("/payments/{paymentId}/refunds")
     public ResponseEntity<RefundResponse> refund(@PathVariable String paymentId, @Valid @RequestBody RefundRequest request) {
         Payment payment = paymentService.getPaymentByIdOrNumber(paymentId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(refundService.refund(payment.getId(), request, CurrentActor.describe()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(refundService.refund(payment.getId(), request,
+                CurrentActor.displayName(), CurrentActor.userId()));
     }
 
     @Operation(summary = "Rechercher les remboursements")
@@ -139,10 +142,19 @@ public class DashboardPaymentController {
             @RequestParam(required = false) RefundStatus status,
             @RequestParam(required = false) Long minAmount,
             @RequestParam(required = false) Long maxAmount,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) LocalDateTime from,
+            @RequestParam(required = false) LocalDateTime to,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ResponseEntity.ok(paymentService.searchRefunds(q, paymentNumber, phone, status, minAmount, maxAmount, from, to, pageable));
+    }
+
+    /** Tri limité à une liste blanche : jamais sur une colonne arbitraire choisie par le client. */
+    private static void requireSortableBy(Pageable pageable, java.util.Set<String> allowed) {
+        for (Sort.Order order : pageable.getSort()) {
+            if (!allowed.contains(order.getProperty())) {
+                throw new IllegalArgumentException("Tri possible uniquement par : " + String.join(", ", new java.util.TreeSet<>(allowed)) + ".");
+            }
+        }
     }
 
     private PaymentLogResponse toLogResponse(PaymentLog log) {

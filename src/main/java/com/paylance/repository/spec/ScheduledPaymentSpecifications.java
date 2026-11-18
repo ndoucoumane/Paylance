@@ -33,13 +33,13 @@ public final class ScheduledPaymentSpecifications {
 
             // 1. Recherche globale 'query' / 'q'
             if (query != null && !query.isBlank()) {
-                String pattern = "%" + query.trim().toLowerCase() + "%";
+                String pattern = SearchPatterns.containsPattern(query);
                 List<Predicate> qOrPredicates = new ArrayList<>();
-                qOrPredicates.add(cb.like(cb.lower(root.get("id")), pattern));
-                qOrPredicates.add(cb.like(cb.lower(root.get("payerPhone")), pattern));
-                qOrPredicates.add(cb.like(cb.lower(root.get("externalReference")), pattern));
-                qOrPredicates.add(cb.like(cb.lower(root.get("note")), pattern));
-                qOrPredicates.add(cb.like(cb.lower(root.get("paymentId")), pattern));
+                qOrPredicates.add(SearchPatterns.matches(cb, root.get("id"), pattern));
+                qOrPredicates.add(SearchPatterns.matches(cb, root.get("payerPhone"), pattern));
+                qOrPredicates.add(SearchPatterns.matches(cb, root.get("externalReference"), pattern));
+                qOrPredicates.add(SearchPatterns.matches(cb, root.get("note"), pattern));
+                qOrPredicates.add(SearchPatterns.matches(cb, root.get("paymentId"), pattern));
 
                 if (matchedPaymentIds != null && !matchedPaymentIds.isEmpty()) {
                     qOrPredicates.add(root.get("paymentId").in(matchedPaymentIds));
@@ -52,7 +52,7 @@ public final class ScheduledPaymentSpecifications {
 
             // 2. Filtres ciblés
             if (phone != null && !phone.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("payerPhone")), "%" + phone.trim().toLowerCase() + "%"));
+                predicates.add(SearchPatterns.matches(cb, root.get("payerPhone"), SearchPatterns.containsPattern(phone)));
             }
 
             if (status != null) {

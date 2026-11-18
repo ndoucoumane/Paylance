@@ -13,6 +13,12 @@ public final class OrganizationAccess {
     public static final String SUPER_ADMIN = "PAYLANCE_SUPER_ADMIN";
     public static final String HEADER = "X-Organization-Id";
 
+    /**
+     * Autorité accordée quand le jeton porte {@code email_verified = true}. Sans préfixe
+     * {@code ROLE_} : elle ne peut pas être obtenue par un rôle Keycloak (voir KeycloakRoleConverter).
+     */
+    public static final String EMAIL_VERIFIED = "PAYLANCE_EMAIL_VERIFIED";
+
     /** Rôles (sans préfixe ROLE_) autorisés en lecture, écriture courante, et administration. */
     public static final String[] READ = {"ORG_OWNER", "ORG_ADMIN", "ORG_DEVELOPER", "ORG_VIEWER"};
     public static final String[] WRITE = {"ORG_OWNER", "ORG_ADMIN", "ORG_DEVELOPER"};

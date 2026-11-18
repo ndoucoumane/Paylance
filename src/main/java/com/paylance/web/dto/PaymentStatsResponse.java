@@ -1,7 +1,10 @@
 package com.paylance.web.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 
+@JsonInclude(JsonInclude.Include.ALWAYS)
 public record PaymentStatsResponse(
         long totalCount,
         long totalAmount,

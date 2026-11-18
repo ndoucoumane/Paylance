@@ -61,6 +61,8 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
         registry.add("paylance.security.encryption-master-key", () -> MASTER_KEY);
         registry.add("paylance.scheduling.enabled", () -> "false");
+        // application.yml lie l'actuator à 127.0.0.1 : il lui faut un port distinct (ici aléatoire).
+        registry.add("management.server.port", () -> "0");
     }
 
     @Autowired protected OrganizationRepository organizationRepository;

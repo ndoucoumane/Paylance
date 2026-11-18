@@ -32,26 +32,26 @@ public final class PaymentSpecifications {
 
             // 1. Recherche globale 'query' / 'q'
             if (query != null && !query.isBlank()) {
-                String pattern = "%" + query.trim().toLowerCase() + "%";
+                String pattern = SearchPatterns.containsPattern(query);
                 Predicate qPredicate = cb.or(
-                        cb.like(cb.lower(root.get("id")), pattern),
-                        cb.like(cb.lower(root.get("paymentNumber")), pattern),
-                        cb.like(cb.lower(root.get("payerPhone")), pattern),
-                        cb.like(cb.lower(root.get("payerName")), pattern),
-                        cb.like(cb.lower(root.get("externalReference")), pattern),
-                        cb.like(cb.lower(root.get("providerTransactionId")), pattern),
-                        cb.like(cb.lower(root.get("idempotencyKey")), pattern)
+                        SearchPatterns.matches(cb, root.get("id"), pattern),
+                        SearchPatterns.matches(cb, root.get("paymentNumber"), pattern),
+                        SearchPatterns.matches(cb, root.get("payerPhone"), pattern),
+                        SearchPatterns.matches(cb, root.get("payerName"), pattern),
+                        SearchPatterns.matches(cb, root.get("externalReference"), pattern),
+                        SearchPatterns.matches(cb, root.get("providerTransactionId"), pattern),
+                        SearchPatterns.matches(cb, root.get("idempotencyKey"), pattern)
                 );
                 predicates.add(qPredicate);
             }
 
             // 2. Filtres ciblés
             if (paymentNumber != null && !paymentNumber.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("paymentNumber")), "%" + paymentNumber.trim().toLowerCase() + "%"));
+                predicates.add(SearchPatterns.matches(cb, root.get("paymentNumber"), SearchPatterns.containsPattern(paymentNumber)));
             }
 
             if (phone != null && !phone.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("payerPhone")), "%" + phone.trim().toLowerCase() + "%"));
+                predicates.add(SearchPatterns.matches(cb, root.get("payerPhone"), SearchPatterns.containsPattern(phone)));
             }
 
             if (applicationId != null && !applicationId.isBlank()) {

@@ -33,27 +33,27 @@ public final class RefundSpecifications {
 
             // 1. Recherche globale 'query' / 'q' (multi-attributs)
             if (query != null && !query.isBlank()) {
-                String pattern = "%" + query.trim().toLowerCase() + "%";
+                String pattern = SearchPatterns.containsPattern(query);
                 Predicate qPredicate = cb.or(
-                        cb.like(cb.lower(root.get("id")), pattern),
-                        cb.like(cb.lower(root.get("reason")), pattern),
-                        cb.like(cb.lower(root.get("providerRefundId")), pattern),
-                        cb.like(cb.lower(root.get("requestedBy")), pattern),
-                        cb.like(cb.lower(paymentJoin.get("id")), pattern),
-                        cb.like(cb.lower(paymentJoin.get("paymentNumber")), pattern),
-                        cb.like(cb.lower(paymentJoin.get("payerPhone")), pattern),
-                        cb.like(cb.lower(paymentJoin.get("payerName")), pattern)
+                        SearchPatterns.matches(cb, root.get("id"), pattern),
+                        SearchPatterns.matches(cb, root.get("reason"), pattern),
+                        SearchPatterns.matches(cb, root.get("providerRefundId"), pattern),
+                        SearchPatterns.matches(cb, root.get("requestedBy"), pattern),
+                        SearchPatterns.matches(cb, paymentJoin.get("id"), pattern),
+                        SearchPatterns.matches(cb, paymentJoin.get("paymentNumber"), pattern),
+                        SearchPatterns.matches(cb, paymentJoin.get("payerPhone"), pattern),
+                        SearchPatterns.matches(cb, paymentJoin.get("payerName"), pattern)
                 );
                 predicates.add(qPredicate);
             }
 
             // 2. Filtres ciblés
             if (paymentNumber != null && !paymentNumber.isBlank()) {
-                predicates.add(cb.like(cb.lower(paymentJoin.get("paymentNumber")), "%" + paymentNumber.trim().toLowerCase() + "%"));
+                predicates.add(SearchPatterns.matches(cb, paymentJoin.get("paymentNumber"), SearchPatterns.containsPattern(paymentNumber)));
             }
 
             if (phone != null && !phone.isBlank()) {
-                predicates.add(cb.like(cb.lower(paymentJoin.get("payerPhone")), "%" + phone.trim().toLowerCase() + "%"));
+                predicates.add(SearchPatterns.matches(cb, paymentJoin.get("payerPhone"), SearchPatterns.containsPattern(phone)));
             }
 
             if (status != null) {

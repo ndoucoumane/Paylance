@@ -14,13 +14,16 @@ public sealed interface ProviderCredentials permits WaveCredentials, OrangeMoney
     /** Même structure que {@link #toMap()}, valeurs masquées (4 derniers caractères). */
     Map<String, String> masked();
 
+    /** Format attendu par le front : quatre puces, puis les 4 derniers caractères. */
+    String MASK = "\u2022\u2022\u2022\u2022";
+
     static String mask(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
         if (value.length() <= 4) {
-            return "****";
+            return MASK;
         }
-        return "****" + value.substring(value.length() - 4);
+        return MASK + value.substring(value.length() - 4);
     }
 }

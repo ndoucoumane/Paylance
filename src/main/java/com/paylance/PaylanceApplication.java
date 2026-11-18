@@ -15,13 +15,15 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 @ConfigurationPropertiesScan
 public class PaylanceApplication {
 
-    public static void main(String[] args) {
-        // Fixe le fuseau JVM en UTC, quel que soit l'hôte/conteneur (jamais configuré
-        // explicitement en déploiement) : les entités persistent des LocalDateTime
-        // (Payment.expiresAt/createdAt...) via LocalDateTime.now()/@CreationTimestamp, et
-        // PaymentService les convertit en Instant pour l'API — les deux doivent s'accorder
-        // sur le même fuseau, sinon ils dérivent l'un de l'autre selon l'hôte.
+    static {
+        // Fuseau JVM fixé à UTC dès le chargement de la classe, donc aussi pour les tests et tout
+        // démarrage qui ne passe pas par main() : les entités persistent des LocalDateTime
+        // (LocalDateTime.now(), @CreationTimestamp) qui sont relus comme de l'UTC (filtres
+        // from/to, conversion en Instant pour l'API). Sans cela, tout dériverait selon l'hôte.
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+    }
+
+    public static void main(String[] args) {
         SpringApplication.run(PaylanceApplication.class, args);
     }
 }

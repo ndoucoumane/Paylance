@@ -37,6 +37,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -274,14 +276,36 @@ public class PaymentService {
                 refund.getCreatedAt());
     }
 
+    /** Un paiement : une requête pour son solde remboursable. */
     public PaymentStatusResponse toStatusResponse(Payment payment) {
+        long reserved = payment.getStatus().isRefundable()
+                ? refundRepository.sumAmountByPaymentIdAndStatusIn(payment.getId(), RefundLedger.RESERVED)
+                : 0;
+        return toStatusResponse(payment, reserved);
+    }
+
+    /** Une page de paiements : soldes remboursables calculés en une seule requête agrégée. */
+    public Page<PaymentStatusResponse> toStatusResponses(Page<Payment> payments) {
+        List<String> refundableIds = payments.getContent().stream()
+                .filter(p -> p.getStatus().isRefundable())
+                .map(Payment::getId)
+                .toList();
+        Map<String, Long> reserved = refundableIds.isEmpty() ? Map.of()
+                : refundRepository.sumAmountByPaymentIds(refundableIds, RefundLedger.RESERVED).stream()
+                        .collect(Collectors.toMap(RefundRepository.PaymentRefundTotal::getPaymentId,
+                                RefundRepository.PaymentRefundTotal::getTotal));
+        return payments.map(p -> toStatusResponse(p, reserved.getOrDefault(p.getId(), 0L)));
+    }
+
+    private PaymentStatusResponse toStatusResponse(Payment payment, long reserved) {
         return new PaymentStatusResponse(
                 payment.getId(), payment.getPaymentNumber(), payment.getCorrelationId(),
                 payment.getApplicationId(), payment.getProviderAccountId(), payment.getCustomerId(),
                 payment.getEnvironment(), payment.getProvider(), payment.getStatus(),
                 payment.getAmount(), payment.getCurrency(), payment.getPayerPhone(), payment.getActualPayerPhone(),
                 payment.getExternalReference(), payment.getFailureReason(), toInstant(payment.getPaidAt()),
-                toInstant(payment.getExpiresAt()), toInstant(payment.getCreatedAt()), toInstant(payment.getUpdatedAt()));
+                toInstant(payment.getExpiresAt()), toInstant(payment.getCreatedAt()), toInstant(payment.getUpdatedAt()),
+                RefundLedger.refundableAmount(payment, reserved));
     }
 
     PaymentInitiateResponse toInitiateResponse(Payment payment, String checkoutReference) {

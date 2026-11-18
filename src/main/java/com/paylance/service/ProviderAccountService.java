@@ -15,6 +15,8 @@ import com.paylance.provider.orangemoney.OrangeMoneyClient;
 import com.paylance.repository.ProviderAccountRepository;
 import com.paylance.security.crypto.EncryptionService;
 import com.paylance.tenant.TenantContext;
+import com.paylance.web.exception.BusinessRuleException;
+import com.paylance.web.exception.ConflictException;
 import com.paylance.web.exception.ProviderAccountNotConfiguredException;
 import com.paylance.web.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ProviderAccountService {
 
+    static final String CONNECTION_REFUSED =
+            "Connexion refusée par le prestataire. Vérifiez les identifiants saisis et l'environnement (test ou production).";
+
     private final ProviderAccountRepository repository;
     private final EncryptionService encryptionService;
     private final PaymentProviderRegistry providerRegistry;
@@ -45,7 +50,7 @@ public class ProviderAccountService {
     public ProviderAccount create(PaymentProvider provider, String label, EnvironmentType environment,
                                   Map<String, String> credentials, String webhookSecret) {
         String organizationId = TenantContext.requireOrganizationId();
-        ProviderCredentials typed = ProviderCredentialsFactory.from(provider, credentials);
+        ProviderCredentials typed = validatedCredentials(provider, credentials);
         ProviderAccount account = ProviderAccount.builder()
                 .provider(provider)
                 .label(label)
@@ -66,7 +71,7 @@ public class ProviderAccountService {
             account.setLabel(label);
         }
         if (credentials != null) {
-            ProviderCredentials typed = ProviderCredentialsFactory.from(account.getProvider(), credentials);
+            ProviderCredentials typed = validatedCredentials(account.getProvider(), credentials);
             account.setCredentialsEncrypted(encryptCredentials(account.getOrganizationId(), typed));
             if (account.getStatus() != ProviderAccountStatus.DISABLED) {
                 account.setStatus(ProviderAccountStatus.PENDING_VERIFICATION);
@@ -89,9 +94,17 @@ public class ProviderAccountService {
     /** Appel en lecture seule chez le prestataire ; un succès active le compte. */
     public ProviderAccount testConnection(String id) {
         ProviderAccount account = get(id);
+        if (account.getStatus() == ProviderAccountStatus.DISABLED) {
+            throw new ConflictException("Ce compte prestataire est désactivé.");
+        }
         ConnectionTestResult result = providerRegistry.resolve(account.getProvider()).testConnection(toConnection(account));
         account.setLastVerifiedAt(LocalDateTime.now());
-        account.setLastVerificationMessage(truncate(result.message()));
+        // Ce message est affiché au marchand : en cas d'échec, jamais l'erreur brute de
+        // l'opérateur (URL, corps HTTP...). Le détail reste dans les journaux applicatifs.
+        if (!result.success()) {
+            log.warn("[PROVIDER_ACCOUNT_TEST_DETAIL] Compte {} : {}", account.getId(), result.message());
+        }
+        account.setLastVerificationMessage(result.success() ? truncate(result.message()) : CONNECTION_REFUSED);
         if (result.success() && account.getStatus() == ProviderAccountStatus.PENDING_VERIFICATION) {
             account.setStatus(ProviderAccountStatus.ACTIVE);
         }
@@ -159,6 +172,15 @@ public class ProviderAccountService {
 
     public boolean hasWebhookSecret(ProviderAccount account) {
         return account.getWebhookSecretEncrypted() != null;
+    }
+
+    /** Saisie du marchand : une erreur d'identifiants est une règle métier (422), message affichable. */
+    private static ProviderCredentials validatedCredentials(PaymentProvider provider, Map<String, String> credentials) {
+        try {
+            return ProviderCredentialsFactory.from(provider, credentials);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessRuleException(e.getMessage());
+        }
     }
 
     private String encryptCredentials(String organizationId, ProviderCredentials credentials) {
